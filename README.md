@@ -1,2 +1,2 @@
 # contatto
-Contatto is a distributed container manager.
+Contatto is a manager for distributed container registry mirrors.
