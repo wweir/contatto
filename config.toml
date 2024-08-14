@@ -1,0 +1,26 @@
+# 服务端口配置
+Addr = "127.0.0.1:8080"
+# Docker 用户配置文件，一般是 $HOME/.docker/config.json，留空则不从 docker 配置中读取用户名和密码
+MirrorRegistry = "swr"
+OnMissing = """
+ssh bwg sh -c 'docker pull {{.raw}} && docker tag {{.raw}} {{.mirror}} && docker push {{.mirror}}'
+"""
+
+# 镜像仓库配置MirrorRegistry = "swr"# 镜像仓库, 应当设置为自主可控的镜像仓库地址
+[[Registries]]
+Name = "swr"
+Host = "swr.cn-east-3.myhuaweicloud.com"
+## 从 docker 配置文件中读取用户名和密码
+DockerConfigFile = "/home/wweir/.docker/config.json"
+## 使用指定的用户名和密码进行身份验证，优先级高于 Docker 存储的令牌
+# UserName = "my_username_1"
+# Password = "my_password_1"
+
+[[Registries]]
+Name = "docker-hub"
+Host = "docker.io"
+
+# 镜像规则配置
+[[MirrorRules]]
+RawRegName = "docker-hub"
+MirrorPathTpl = "wweir/{{.Project}}-{{.Repo}}:{{.Tag}}"
