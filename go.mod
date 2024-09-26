@@ -5,10 +5,11 @@ go 1.23
 toolchain go1.23.0
 
 require (
-	github.com/BurntSushi/toml v1.4.0
 	github.com/alecthomas/kong v1.2.1
 	github.com/containerd/containerd/v2 v2.0.0-rc.4
+	github.com/go-viper/mapstructure/v2 v2.1.0
 	github.com/julienschmidt/httprouter v1.3.0
+	github.com/pelletier/go-toml/v2 v2.2.3
 	gopkg.in/yaml.v3 v3.0.1
 )
 

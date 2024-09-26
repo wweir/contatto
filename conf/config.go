@@ -4,15 +4,17 @@ import (
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
-	"log"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
+	"regexp"
 	"strings"
 	"sync"
 	"text/template"
 
-	"github.com/BurntSushi/toml"
+	"github.com/go-viper/mapstructure/v2"
+	"github.com/pelletier/go-toml/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -61,19 +63,34 @@ func InitConfig(file string) error {
 	}
 	defer f.Close()
 
+	var decodeFn func(any) error
 	switch filepath.Ext(file) {
 	case ".json":
-		if err := json.NewDecoder(f).Decode(&Config); err != nil {
-			log.Fatal(err)
-		}
+		decodeFn = json.NewDecoder(f).Decode
 	case ".toml":
-		if _, err := toml.NewDecoder(f).Decode(&Config); err != nil {
-			log.Fatal(err)
-		}
+		decodeFn = toml.NewDecoder(f).Decode
 	case ".yaml", ".yml":
-		if err := yaml.NewDecoder(f).Decode(&Config); err != nil {
-			log.Fatal(err)
-		}
+		decodeFn = yaml.NewDecoder(f).Decode
+	}
+
+	decodeM := map[string]any{}
+	if err := decodeFn(&decodeM); err != nil {
+		slog.Error("failed to decode config", "err", err)
+		return err
+	}
+	decoder, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
+		DecodeHook: func(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
+			if f.Kind() != reflect.String || t.Kind() != reflect.String {
+				return data, nil
+			}
+			return ReadSHEnv(data.(string))
+		},
+		TagName: "json",
+		Result:  &Config,
+	})
+	if err := decoder.Decode(decodeM); err != nil {
+		slog.Error("failed to decode config", "err", err)
+		return err
 	}
 
 	slog.Info("Starting with config", "branch", Branch, "version", Version, "date", Date, "config", Config)
@@ -137,6 +154,36 @@ func InitConfig(file string) error {
 	}
 
 	return nil
+}
+
+var envRe = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
+
+func ReadSHEnv(value string) (string, error) {
+	idxPairs := envRe.FindAllStringIndex(value, -1)
+	if len(idxPairs) == 0 {
+		return value, nil
+	}
+	newValue := ""
+	for _, idxPair := range idxPairs {
+		if readBeforeByte(value, idxPair[0]) == '$' {
+			newValue += value[:idxPair[0]] + value[idxPair[0]+1:idxPair[1]]
+			continue
+		}
+
+		envName := value[idxPair[0]+2 : idxPair[1]-1]
+		envValue := os.Getenv(envName)
+		newValue += value[:idxPair[0]] + envValue
+	}
+
+	lastIdx := idxPairs[len(idxPairs)-1][1]
+	return newValue + value[lastIdx:], nil
+}
+
+func readBeforeByte(value string, idx int) byte {
+	if idx == 0 {
+		return 0
+	}
+	return value[idx-1]
 }
 
 // https://github.com/docker/cli/blob/a18c896928828eca5eb91e816f009268fe0cd995/cli/config/configfile/file.go#L232

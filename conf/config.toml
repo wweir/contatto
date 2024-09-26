@@ -1,8 +1,8 @@
 # 服务端口配置
-Addr = "127.0.0.1:8080"
+addr = "127.0.0.1:8080"
 # Docker 用户配置文件，一般是 $HOME/.docker/config.json，留空则不从 docker 配置中读取用户名和密码
-MirrorRegistry = "local-registry"
-OnMissing = """
+mirror_registry = "local-registry"
+on_missing = """
 ssh <PROXY_SERVER> sh -c '
 docker pull {{.raw}}
 docker tag {{.raw}} {{.mirror}}
@@ -14,18 +14,19 @@ docker rmi {{.raw}} {{.mirror}}'
 [[Registries]]
 Name = "local-registry"
 # mirror registry 地址
-Host = "localhost:5000"
+# Host = "localhost:5000"
 # 从 docker 配置文件中读取用户名和密码
-DockerConfigFile = "<HOME>/.docker/config.json"
+DockerConfigFile = "${HOME}/.docker/config.json"
 ## 使用指定的用户名和密码进行身份验证，优先级高于 Docker 存储的令牌
 # UserName = "my_username_1"
 # Password = "my_password_1"
 
+
+# 镜像规则配置
 [[Registries]]
 Name = "docker-hub"
 Host = "docker.io"
 
-# 镜像规则配置
 [[MirrorRules]]
 RawRegName = "docker-hub"
-MirrorPathTpl = "wweir/{{.Project}}-{{.Repo}}:{{.Tag}}"
+MirrorPathTpl = "docker-hub/{{.Project}}-{{.Repo}}:{{.Tag}}"

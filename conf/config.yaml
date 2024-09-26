@@ -9,7 +9,7 @@ OnMissing: |
 Registries:
   - Name: local-registry
     Host: "localhost:5000"
-    DockerConfigFile: <HOME>/.docker/config.json
+    DockerConfigFile: ${HOME}/.docker/config.json
   - Name: docker-hub
     Host: docker.io
 MirrorRules:
