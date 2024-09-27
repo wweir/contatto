@@ -1,32 +1,69 @@
-# 服务端口配置
 addr = "127.0.0.1:8080"
-# Docker 用户配置文件，一般是 $HOME/.docker/config.json，留空则不从 docker 配置中读取用户名和密码
 mirror_registry = "local-registry"
-on_missing = """
-ssh <PROXY_SERVER> sh -c '
-docker pull {{.raw}}
-docker tag {{.raw}} {{.mirror}}
-docker push {{.mirror}}
-docker rmi {{.raw}} {{.mirror}}'
-"""
+## The cmd will be executed when the image is not found in the mirror registry.
+## Available parameters: {{.raw}} {{.mirror}}
+## {{.Raw.Registry}} {{.Raw.Project}} {{.Raw.Repo}} {{.Raw.Tag}}
+## {{.Mirror.Registry}} {{.Mirror.Project}} {{.Mirror.Repo}} {{.Mirror.Tag}}
+# on_missing = """
+# ssh <PROXY_SERVER> sh -c \
+#   'docker pull {{.raw}} && docker tag {{.raw}} {{.mirror}} && docker push {{.mirror}}'
+# """
 
-# 镜像仓库配置MirrorRegistry = "swr"# 镜像仓库, 应当设置为自主可控的镜像仓库地址
-[[Registries]]
-Name = "local-registry"
-# mirror registry 地址
-# Host = "localhost:5000"
-# 从 docker 配置文件中读取用户名和密码
-DockerConfigFile = "${HOME}/.docker/config.json"
-## 使用指定的用户名和密码进行身份验证，优先级高于 Docker 存储的令牌
-# UserName = "my_username_1"
-# Password = "my_password_1"
+[[registries]]
+name = "local-registry"
+endpoint = "localhost:5000"
+# user = "my_username_1"
+# password = "my_password_1"
+## Retrieve authentication information from the Docker configuration file if the username and password are not specified.
+# docker_config_file = "${HOME}/.docker/config.json"
 
 
-# 镜像规则配置
-[[Registries]]
-Name = "docker-hub"
-Host = "docker.io"
+## mirror rules
+[[registries]]
+name = "docker-hub"
+endpoint = "docker.io"
+[[mirror_rules]]
+raw_reg_name = "docker-hub"
+mirror_path_tpl = "docker-hub/{{.Project}}-{{.Repo}}:{{.Tag}}"
 
-[[MirrorRules]]
-RawRegName = "docker-hub"
-MirrorPathTpl = "docker-hub/{{.Project}}-{{.Repo}}:{{.Tag}}"
+[[registries]]
+name = "gcr"
+endpoint = "gcr.io"
+[[mirror_rules]]
+raw_reg_name = "gcr"
+mirror_path_tpl = "gcr/{{.Project}}-{{.Repo}}:{{.Tag}}"
+
+[[registries]]
+name = "ghcr"
+endpoint = "ghcr.io"
+[[mirror_rules]]
+raw_reg_name = "ghcr"
+mirror_path_tpl = "ghcr/{{.Project}}-{{.Repo}}:{{.Tag}}"
+
+[[registries]]
+name = "k8s-gcr"
+endpoint = "k8s.gcr.io"
+[[mirror_rules]]
+raw_reg_name = "k8s-gcr"
+mirror_path_tpl = "k8s-gcr/{{.Project}}-{{.Repo}}:{{.Tag}}"
+
+[[registries]]
+name = "reg-k8s"
+endpoint = "registry.k8s.io"
+[[mirror_rules]]
+raw_reg_name = "reg-k8s"
+mirror_path_tpl = "reg-k8s/{{.Project}}-{{.Repo}}:{{.Tag}}"
+
+[[registries]]
+name = "quay"
+endpoint = "quay.io"
+[[mirror_rules]]
+raw_reg_name = "quay"
+mirror_path_tpl = "quay/{{.Project}}-{{.Repo}}:{{.Tag}}"
+
+[[registries]]
+name = "nvcr"
+endpoint = "nvcr.io"
+[[mirror_rules]]
+raw_reg_name = "nvcr"
+mirror_path_tpl = "nvcr/{{.Project}}-{{.Repo}}:{{.Tag}}"

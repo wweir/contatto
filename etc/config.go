@@ -21,10 +21,9 @@ import (
 var (
 	Branch, Version, Date string
 
-	RegM       = map[string]*Registry{}
-	RegHostM   = map[string]*Registry{}
-	RuleHostM  = map[string]*MirrorRule{}
-	DockerAuth = map[string]*dockerAuth{}
+	RegM      = map[string]*Registry{}
+	RegHostM  = map[string]*Registry{}
+	RuleHostM = map[string]*MirrorRule{}
 
 	OnMissing  func(any) (string, error)
 	bufferPool = sync.Pool{
@@ -43,15 +42,15 @@ var Config struct {
 
 type Registry struct {
 	Name             string
-	Host             string
+	Endpoint         string
 	Insecure         bool
 	DockerConfigFile string
-	UserName         string
+	User             string
 	Password         string
 }
 
 type dockerAuth struct {
-	UserName string
+	User     string
 	Password string
 }
 
@@ -63,21 +62,20 @@ func InitConfig(file string) error {
 	}
 	defer f.Close()
 
-	var decodeFn func(any) error
+	decodeM := map[string]any{}
 	switch filepath.Ext(file) {
 	case ".json":
-		decodeFn = json.NewDecoder(f).Decode
+		err = json.NewDecoder(f).Decode(&decodeM)
 	case ".toml":
-		decodeFn = toml.NewDecoder(f).Decode
+		err = toml.NewDecoder(f).Decode(&decodeM)
 	case ".yaml", ".yml":
-		decodeFn = yaml.NewDecoder(f).Decode
+		err = yaml.NewDecoder(f).Decode(&decodeM)
 	}
-
-	decodeM := map[string]any{}
-	if err := decodeFn(&decodeM); err != nil {
+	if err != nil {
 		slog.Error("failed to decode config", "err", err)
 		return err
 	}
+
 	decoder, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook: func(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
 			if f.Kind() != reflect.String || t.Kind() != reflect.String {
@@ -87,6 +85,9 @@ func InitConfig(file string) error {
 		},
 		TagName: "json",
 		Result:  &Config,
+		MatchName: func(mapKey, fieldName string) bool {
+			return strings.EqualFold(strings.ReplaceAll(mapKey, "_", ""), fieldName)
+		},
 	})
 	if err := decoder.Decode(decodeM); err != nil {
 		slog.Error("failed to decode config", "err", err)
@@ -123,15 +124,15 @@ func InitConfig(file string) error {
 	RegHostM = map[string]*Registry{}
 	for i, reg := range Config.Registries {
 		RegM[reg.Name] = &Config.Registries[i]
-		RegHostM[reg.Host] = &Config.Registries[i]
-		if reg.DockerConfigFile != "" && reg.UserName == "" {
-			user, password, err := readAuthFromDockerConfig(reg.DockerConfigFile, reg.Host)
+		RegHostM[reg.Endpoint] = &Config.Registries[i]
+		if reg.DockerConfigFile != "" && reg.User == "" {
+			user, password, err := readAuthFromDockerConfig(reg.DockerConfigFile, reg.Endpoint)
 			if err != nil {
 				slog.Error("failed to read auth from docker config", "err", err)
 				return err
 			}
 
-			Config.Registries[i].UserName = user
+			Config.Registries[i].User = user
 			Config.Registries[i].Password = password
 		}
 	}
@@ -150,7 +151,7 @@ func InitConfig(file string) error {
 			return err
 		}
 
-		RuleHostM[src.Host] = &Config.MirrorRules[i]
+		RuleHostM[src.Endpoint] = &Config.MirrorRules[i]
 	}
 
 	return nil
@@ -238,7 +239,7 @@ func readAuthFromDockerConfig(configFile, registryHost string) (user, password s
 
 type MirrorRule struct {
 	RawRegName    string
-	MirrorPathTpl string // rendering a image path: /wweir/alpine:latest
+	MirrorPathTpl string // rendering a image path: /docker-hub/alpine:latest
 	mirrorPathTpl *template.Template
 }
 

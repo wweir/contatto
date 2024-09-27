@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"fmt"
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
@@ -51,7 +50,7 @@ func (c *ProxyCmd) Run() error {
 		rule, ok := etc.RuleHostM[host]
 		if !ok { // no mapping rule, directly forward to the registry
 			if reg, ok := etc.RegHostM[host]; ok {
-				r.Out.URL.Host = reg.Host
+				r.Out.URL.Host = reg.Endpoint
 				if reg.Insecure {
 					r.Out.URL.Scheme = "http"
 				} else {
@@ -67,16 +66,16 @@ func (c *ProxyCmd) Run() error {
 
 		{ // rewrite host, scheme, query
 			dstReg := etc.RegM[etc.Config.MirrorRegistry]
-			dstPat.Registry = dstReg.Host
+			dstPat.Registry = dstReg.Endpoint
 
 			if dstReg.Insecure {
 				r.Out.URL.Scheme = "http"
 			} else {
 				r.Out.URL.Scheme = "https"
 			}
-			r.Out.Host = dstReg.Host
-			r.Out.URL.Host = dstReg.Host
-			query.Set("ns", dstReg.Host)
+			r.Out.Host = dstReg.Endpoint
+			r.Out.URL.Host = dstReg.Endpoint
+			query.Set("ns", dstReg.Endpoint)
 			r.Out.URL.RawQuery = query.Encode()
 		}
 
@@ -105,10 +104,17 @@ func (c *ProxyCmd) Run() error {
 
 		// the first time to access the registry, do a HEAD request to get the auth method
 		if _, ok := c.firstAttach.LoadOrStore(r.Out.Host, struct{}{}); !ok {
-			resp, err := http.Head(r.Out.URL.String())
+			path, query := r.Out.URL.Path, r.Out.URL.RawQuery
+			r.Out.URL.Path, r.Out.URL.RawQuery = "/v2/", ""
+			firstAttachURL := r.Out.URL.String()
+			r.Out.URL.Path, r.Out.URL.RawQuery = path, query
+
+			resp, err := http.Get(firstAttachURL)
 			if err != nil {
-				slog.Warn("failed to head", "url", r.Out.URL.String(), "err", err)
+				slog.Warn("failed to request", "url", firstAttachURL, "err", err)
 			} else if resp.StatusCode == 401 {
+				defer resp.Body.Close()
+				slog.Debug("first attach", "url", firstAttachURL)
 				if err := authorizer.AddResponses(context.Background(), []*http.Response{resp}); err != nil {
 					slog.Error("failed to add responses", "err", err)
 				}
@@ -124,6 +130,7 @@ func (c *ProxyCmd) Run() error {
 	proxy.ModifyResponse = func(w *http.Response) error {
 		switch w.StatusCode {
 		case 401:
+			slog.Info("auth failed", "url", w.Request.URL.String())
 			if err := authorizer.AddResponses(context.Background(), []*http.Response{w}); err != nil {
 				slog.Error("failed to add responses", "err", err)
 			}
@@ -142,6 +149,7 @@ func (c *ProxyCmd) Run() error {
 				slog.Info("mirror image not exist, run on missing command", "cmd", cmdline)
 
 				go func() {
+					slog.Info("on missing command running", "cmd", cmdline)
 					startTime := time.Now()
 					cmd := exec.Command("sh", "-c", cmdline)
 					out, err := cmd.CombinedOutput()
@@ -149,14 +157,9 @@ func (c *ProxyCmd) Run() error {
 						slog.Error("failed to run on missing command", "output", out, "err", err)
 						return
 					}
-					slog.Info("on missing command finished", "cost", time.Since(startTime))
+					slog.Info("on missing command finished", "took", time.Since(startTime))
 				}()
 			}
-
-			// cmd := exec.Command("sh", "-c", "")
-			// if err := cmd.Run(); err != nil {
-			// 	slog.Error("failed to pull image", "err", err)
-			// }
 		default:
 			slog.Info(w.Request.Method, "url", w.Request.URL.String(), "status", w.StatusCode)
 		}
@@ -167,19 +170,8 @@ func (c *ProxyCmd) Run() error {
 }
 
 func (c *ProxyCmd) AuthCreds(host string) (string, string, error) {
-	slog.Info("read auth creds", "registry", host)
-
 	reg := etc.RegHostM[host]
-	if reg.UserName != "" && reg.Password != "" {
-		return reg.UserName, reg.Password, nil
-	}
-
-	if auth, ok := etc.DockerAuth[host]; ok {
-		return auth.UserName, auth.Password, nil
-	}
-
-	return "", "", fmt.Errorf(
-		"registry (%s) user/password not set and docker config file not set", host)
+	return reg.User, reg.Password, nil
 }
 
 type ImagePattern struct {
