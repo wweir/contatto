@@ -13,7 +13,7 @@ build: test
 		-X main.date=$(shell date +%Y-%m-%d)" \
 		-o bin/contatto .
 run: build
-	./bin/contatto proxy -c config.toml
+	./bin/contatto proxy -c contatto.toml
 
 clean:
 	rm -f ./bin/contatto

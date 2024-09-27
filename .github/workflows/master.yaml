@@ -1,0 +1,23 @@
+name: Go
+on:
+  push:
+    branches:
+      - master
+      - main
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ^1.23
+          check-latest: true
+          cache-dependency-path: |
+            **/go.sum
+            **/go.mod
+
+      - uses: actions/checkout@v4
+      - name: test and build
+        run: |
+          make

@@ -31,3 +31,4 @@ go.work.sum
 **.env
 /bin
 /config.toml
+/contatto.toml

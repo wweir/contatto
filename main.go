@@ -5,7 +5,7 @@ import (
 	"log"
 
 	"github.com/alecthomas/kong"
-	"github.com/wweir/contatto/conf"
+	"github.com/wweir/contatto/etc"
 )
 
 var cli struct {
@@ -20,7 +20,7 @@ func init() {
 func main() {
 	ctx := kong.Parse(&cli,
 		kong.UsageOnError(),
-		kong.Description(fmt.Sprintf(`Contatto %s (%s %s)`, conf.Version, conf.Branch, conf.Date)),
+		kong.Description(fmt.Sprintf(`Contatto %s (%s %s)`, etc.Version, etc.Branch, etc.Date)),
 	)
 	if err := ctx.Run(); err != nil {
 		log.Fatalf("run failed: %v\n", err)

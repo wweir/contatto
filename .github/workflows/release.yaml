@@ -1,0 +1,41 @@
+name: Release
+on:
+  push:
+    tags:
+      - "v*.*.*"
+jobs:
+  build:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ^1.23
+          check-latest: true
+          cache-dependency-path: |
+            **/go.sum
+            **/go.mod
+
+      - uses: actions/checkout@v4
+      - name: build matrix
+        run: |
+          make build GO='GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go'
+          tar czvf contatto-linux-amd64.tar.gz ./bin/ ./etc/contatto.toml
+          make clean
+          make build GO='GOOS=linux GOARCH=arm CGO_ENABLED=0 go'
+          tar czvf contatto-linux-arm.tar.gz ./bin/ ./etc/contatto.toml
+          make clean
+          make build GO='GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go'
+          tar czvf contatto-linux-arm64.tar.gz ./bin/ ./etc/contatto.toml
+          make clean
+          make build GO='GOOS=linux GOARCH=mips CGO_ENABLED=0 go'
+          tar czvf contatto-linux-mips.tar.gz ./bin/ ./etc/contatto.toml
+          make clean
+          make build GO='GOOS=linux GOARCH=mipsle CGO_ENABLED=0 go'
+          tar czvf contatto-linux-mipsle.tar.gz ./bin/ ./etc/contatto.toml
+          make clean
+
+      - uses: ncipollo/release-action@v1
+        with:
+          artifacts: "*.tar.gz"
+          token: ${{ secrets.GITHUB_TOKEN }}

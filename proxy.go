@@ -13,7 +13,7 @@ import (
 
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/julienschmidt/httprouter"
-	"github.com/wweir/contatto/conf"
+	"github.com/wweir/contatto/etc"
 )
 
 type ProxyCmd struct {
@@ -23,7 +23,7 @@ type ProxyCmd struct {
 }
 
 func (c *ProxyCmd) Run() error {
-	if err := conf.InitConfig(c.Config); err != nil {
+	if err := etc.InitConfig(c.Config); err != nil {
 		return err
 	}
 
@@ -48,9 +48,9 @@ func (c *ProxyCmd) Run() error {
 			host = "docker.io"
 		}
 
-		rule, ok := conf.RuleHostM[host]
+		rule, ok := etc.RuleHostM[host]
 		if !ok { // no mapping rule, directly forward to the registry
-			if reg, ok := conf.RegHostM[host]; ok {
+			if reg, ok := etc.RegHostM[host]; ok {
 				r.Out.URL.Host = reg.Host
 				if reg.Insecure {
 					r.Out.URL.Scheme = "http"
@@ -66,7 +66,7 @@ func (c *ProxyCmd) Run() error {
 		dstPat := &ImagePattern{}
 
 		{ // rewrite host, scheme, query
-			dstReg := conf.RegM[conf.Config.MirrorRegistry]
+			dstReg := etc.RegM[etc.Config.MirrorRegistry]
 			dstPat.Registry = dstReg.Host
 
 			if dstReg.Insecure {
@@ -131,8 +131,8 @@ func (c *ProxyCmd) Run() error {
 			var raw, mirror ImagePattern
 			raw.ParseImage(w.Request.Header.Get("Contatto-Raw-Image"))
 			mirror.ParseImage(w.Request.Header.Get("Contatto-Mirror-Image"))
-			if conf.OnMissing != nil {
-				cmdline, err := conf.OnMissing(map[string]any{
+			if etc.OnMissing != nil {
+				cmdline, err := etc.OnMissing(map[string]any{
 					"Raw": raw, "Mirror": mirror, "raw": raw.String(), "mirror": mirror.String(),
 				})
 				if err != nil {
@@ -163,18 +163,18 @@ func (c *ProxyCmd) Run() error {
 		return nil
 	}
 
-	return http.ListenAndServe(conf.Config.Addr, proxy)
+	return http.ListenAndServe(etc.Config.Addr, proxy)
 }
 
 func (c *ProxyCmd) AuthCreds(host string) (string, string, error) {
 	slog.Info("read auth creds", "registry", host)
 
-	reg := conf.RegHostM[host]
+	reg := etc.RegHostM[host]
 	if reg.UserName != "" && reg.Password != "" {
 		return reg.UserName, reg.Password, nil
 	}
 
-	if auth, ok := conf.DockerAuth[host]; ok {
+	if auth, ok := etc.DockerAuth[host]; ok {
 		return auth.UserName, auth.Password, nil
 	}
 
