@@ -19,6 +19,9 @@ jobs:
       - uses: actions/checkout@v4
       - name: build matrix
         run: |
+          mkdir -p etc
+          mv conf/contatto.toml etc/contatto.toml
+
           make build GO='GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go'
           tar czvf contatto-linux-amd64.tar.gz ./bin/ ./etc/contatto.toml
           make clean

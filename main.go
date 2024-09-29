@@ -8,11 +8,12 @@ import (
 
 	"github.com/alecthomas/kong"
 	"github.com/lmittmann/tint"
-	"github.com/wweir/contatto/etc"
+	"github.com/wweir/contatto/conf"
 )
 
 var cli struct {
-	Debug bool `help:"debug mode"`
+	Config string `short:"c" required:"" default:"/etc/contatto.toml"`
+	Debug  bool   `help:"debug mode"`
 
 	Install *InstallCmd `cmd:"" help:"install contatto"`
 	Proxy   *ProxyCmd   `cmd:"" help:"run as registry proxy"`
@@ -26,9 +27,14 @@ func main() {
 
 	ctx := kong.Parse(&cli,
 		kong.UsageOnError(),
-		kong.Description(fmt.Sprintf(`Contatto %s (%s %s)`, etc.Version, etc.Branch, etc.Date)),
+		kong.Description(fmt.Sprintf(`Contatto %s (%s %s)`, conf.Version, conf.Branch, conf.Date)),
 	)
-	if err := ctx.Run(); err != nil {
+
+	config, err := conf.ReadConfig(cli.Config)
+	if err != nil {
+		log.Fatalln("failed to read config:", err)
+	}
+	if err := ctx.Run(config); err != nil {
 		log.Fatalf("run failed: %v\n", err)
 	}
 }

@@ -1,4 +1,4 @@
-package etc
+package conf
 
 import (
 	"encoding/json"
@@ -17,7 +17,7 @@ import (
 
 var Branch, Version, Date string
 
-type config struct {
+type Config struct {
 	Addr             string
 	DockerConfigFile string
 	BaseRule         MirrorRule
@@ -25,7 +25,7 @@ type config struct {
 	Rule             map[string]*MirrorRule
 }
 
-func ReadConfig(file string) (*config, error) {
+func ReadConfig(file string) (*Config, error) {
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
@@ -45,7 +45,7 @@ func ReadConfig(file string) (*config, error) {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
 
-	c := config{}
+	c := Config{}
 	decoder, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook: func(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
 			if f.Kind() != reflect.String || t.Kind() != reflect.String {
@@ -69,7 +69,10 @@ func ReadConfig(file string) (*config, error) {
 		if registry.registry == "" {
 			registry.registry = host
 		}
-		if registry.Alias != "" {
+
+		if registry.Alias == "" {
+			registry.Alias = host
+		} else {
 			c.Registry[registry.Alias] = registry
 		}
 	}
@@ -102,7 +105,7 @@ func ReadConfig(file string) (*config, error) {
 
 var envRe = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
 
-func (c *config) ReadSHEnv(value string) (string, error) {
+func (c *Config) ReadSHEnv(value string) (string, error) {
 	idxPairs := envRe.FindAllStringIndex(value, -1)
 	if len(idxPairs) == 0 {
 		return value, nil
@@ -124,7 +127,7 @@ func (c *config) ReadSHEnv(value string) (string, error) {
 	return newValue + value[lastIdx:], nil
 }
 
-func (c *config) readBeforeByte(value string, idx int) byte {
+func (c *Config) readBeforeByte(value string, idx int) byte {
 	if idx == 0 {
 		return 0
 	}

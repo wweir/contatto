@@ -1,4 +1,4 @@
-package etc
+package conf
 
 import (
 	"encoding/base64"
