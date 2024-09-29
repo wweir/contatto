@@ -1,34 +1,16 @@
-addr: 127.0.0.1:8080
-mirror_registry: local-registry
-registries:
-  - name: local-registry
-    endpoint: localhost:5000
-  - name: docker-hub
-    endpoint: docker.io
-  - name: gcr
-    endpoint: gcr.io
-  - name: ghcr
-    endpoint: ghcr.io
-  - name: k8s-gcr
-    endpoint: k8s.gcr.io
-  - name: reg-k8s
-    endpoint: registry.k8s.io
-  - name: quay
-    endpoint: quay.io
-  - name: nvcr
-    endpoint: nvcr.io
-mirror_rules:
-  - raw_reg_name: docker-hub
-    mirror_path_tpl: docker-hub/{{.Project}}-{{.Repo}}:{{.Tag}}
-  - raw_reg_name: gcr
-    mirror_path_tpl: gcr/{{.Project}}-{{.Repo}}:{{.Tag}}
-  - raw_reg_name: ghcr
-    mirror_path_tpl: ghcr/{{.Project}}-{{.Repo}}:{{.Tag}}
-  - raw_reg_name: k8s-gcr
-    mirror_path_tpl: k8s-gcr/{{.Project}}-{{.Repo}}:{{.Tag}}
-  - raw_reg_name: reg-k8s
-    mirror_path_tpl: reg-k8s/{{.Project}}-{{.Repo}}:{{.Tag}}
-  - raw_reg_name: quay
-    mirror_path_tpl: quay/{{.Project}}-{{.Repo}}:{{.Tag}}
-  - raw_reg_name: nvcr
-    mirror_path_tpl: nvcr/{{.Project}}-{{.Repo}}:{{.Tag}}
+addr: "127.0.0.1:8080"
+docker_config_file: "${HOME}/.docker/config.json"
+base_rule:
+  mirror_registry: mirror-registry
+  path_tpl: "{{.Registry}}/{{.Project}}-{{.Repo}}:{{.Tag}}"
+registry:
+  "<local-registry>:5000":
+    alias: mirror-registry
+rule:
+  docker.io: {}
+  gcr.io: {}
+  ghcr.io: {}
+  k8s.gcr.io: {}
+  registry.k8s.io: {}
+  quay.io: {}
+  nvcr.io: {}

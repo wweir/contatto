@@ -1,69 +1,29 @@
 addr = "127.0.0.1:8080"
-mirror_registry = "local-registry"
+## Retrieve authentication information from the Docker configuration file if the username and password are not specified.
+docker_config_file = "${HOME}/.docker/config.json"
+
+# if the field in rule is empty, use the value in base_rule.
+[base_rule]
+mirror_registry = "mirror-registry"
+## Available parameters in template: {{.raw}} {{.mirror}}
+## {{.Raw.Registry}} {{.Raw.Alias}} {{.Raw.Project}} {{.Raw.Repo}} {{.Raw.Tag}}
+## {{.Mirror.Registry}} {{.Mirror.Alias}} {{.Mirror.Project}} {{.Mirror.Repo}} {{.Mirror.Tag}}
+path_tpl = "{{.Registry}}/{{.Project}}-{{.Repo}}:{{.Tag}}"
 ## The cmd will be executed when the image is not found in the mirror registry.
-## Available parameters: {{.raw}} {{.mirror}}
-## {{.Raw.Registry}} {{.Raw.Project}} {{.Raw.Repo}} {{.Raw.Tag}}
-## {{.Mirror.Registry}} {{.Mirror.Project}} {{.Mirror.Repo}} {{.Mirror.Tag}}
-# on_missing = """
-# ssh <PROXY_SERVER> sh -c \
+# on_missing_tpl = """
+# ssh <PROXY_SERVER> -- \
 #   'docker pull {{.raw}} && docker tag {{.raw}} {{.mirror}} && docker push {{.mirror}}'
 # """
 
-[[registries]]
-name = "local-registry"
-endpoint = "localhost:5000"
+[registry."<local-registry>:5000"]
+alias = "mirror-registry"
 # user = "my_username_1"
 # password = "my_password_1"
-## Retrieve authentication information from the Docker configuration file if the username and password are not specified.
-# docker_config_file = "${HOME}/.docker/config.json"
 
-
-## mirror rules
-[[registries]]
-name = "docker-hub"
-endpoint = "docker.io"
-[[mirror_rules]]
-raw_reg_name = "docker-hub"
-mirror_path_tpl = "docker-hub/{{.Project}}-{{.Repo}}:{{.Tag}}"
-
-[[registries]]
-name = "gcr"
-endpoint = "gcr.io"
-[[mirror_rules]]
-raw_reg_name = "gcr"
-mirror_path_tpl = "gcr/{{.Project}}-{{.Repo}}:{{.Tag}}"
-
-[[registries]]
-name = "ghcr"
-endpoint = "ghcr.io"
-[[mirror_rules]]
-raw_reg_name = "ghcr"
-mirror_path_tpl = "ghcr/{{.Project}}-{{.Repo}}:{{.Tag}}"
-
-[[registries]]
-name = "k8s-gcr"
-endpoint = "k8s.gcr.io"
-[[mirror_rules]]
-raw_reg_name = "k8s-gcr"
-mirror_path_tpl = "k8s-gcr/{{.Project}}-{{.Repo}}:{{.Tag}}"
-
-[[registries]]
-name = "reg-k8s"
-endpoint = "registry.k8s.io"
-[[mirror_rules]]
-raw_reg_name = "reg-k8s"
-mirror_path_tpl = "reg-k8s/{{.Project}}-{{.Repo}}:{{.Tag}}"
-
-[[registries]]
-name = "quay"
-endpoint = "quay.io"
-[[mirror_rules]]
-raw_reg_name = "quay"
-mirror_path_tpl = "quay/{{.Project}}-{{.Repo}}:{{.Tag}}"
-
-[[registries]]
-name = "nvcr"
-endpoint = "nvcr.io"
-[[mirror_rules]]
-raw_reg_name = "nvcr"
-mirror_path_tpl = "nvcr/{{.Project}}-{{.Repo}}:{{.Tag}}"
+[rule."docker.io"]
+[rule."gcr.io"]
+[rule."ghcr.io"]
+[rule."k8s.gcr.io"]
+[rule."registry.k8s.io"]
+[rule."quay.io"]
+[rule."nvcr.io"]
