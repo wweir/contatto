@@ -1,32 +1,29 @@
-# 服务端口配置
 addr = "127.0.0.1:8080"
-# Docker 用户配置文件，一般是 $HOME/.docker/config.json，留空则不从 docker 配置中读取用户名和密码
-mirror_registry = "local-registry"
-on_missing = """
-ssh <PROXY_SERVER> sh -c '
-docker pull {{.raw}}
-docker tag {{.raw}} {{.mirror}}
-docker push {{.mirror}}
-docker rmi {{.raw}} {{.mirror}}'
-"""
+## Retrieve authentication information from the Docker configuration file if the username and password are not specified.
+docker_config_file = "${HOME}/.docker/config.json"
 
-# 镜像仓库配置MirrorRegistry = "swr"# 镜像仓库, 应当设置为自主可控的镜像仓库地址
-[[Registries]]
-Name = "local-registry"
-# mirror registry 地址
-# Host = "localhost:5000"
-# 从 docker 配置文件中读取用户名和密码
-DockerConfigFile = "${HOME}/.docker/config.json"
-## 使用指定的用户名和密码进行身份验证，优先级高于 Docker 存储的令牌
-# UserName = "my_username_1"
-# Password = "my_password_1"
+# if the field in rule is empty, use the value in base_rule.
+[base_rule]
+mirror_registry = "mirror-registry"
+## Available parameters in template: {{.raw}} {{.mirror}}
+## {{.Raw.Registry}} {{.Raw.Alias}} {{.Raw.Project}} {{.Raw.Repo}} {{.Raw.Tag}}
+## {{.Mirror.Registry}} {{.Mirror.Alias}} {{.Mirror.Project}} {{.Mirror.Repo}} {{.Mirror.Tag}}
+path_tpl = "{{.Registry}}/{{.Project}}-{{.Repo}}:{{.Tag}}"
+## The cmd will be executed when the image is not found in the mirror registry.
+# on_missing_tpl = """
+# ssh <PROXY_SERVER> -- \
+#   'docker pull {{.raw}} && docker tag {{.raw}} {{.mirror}} && docker push {{.mirror}}'
+# """
 
+[registry."<local-registry>:5000"]
+alias = "mirror-registry"
+# user = "my_username_1"
+# password = "my_password_1"
 
-# 镜像规则配置
-[[Registries]]
-Name = "docker-hub"
-Host = "docker.io"
-
-[[MirrorRules]]
-RawRegName = "docker-hub"
-MirrorPathTpl = "docker-hub/{{.Project}}-{{.Repo}}:{{.Tag}}"
+[rule."docker.io"]
+[rule."gcr.io"]
+[rule."ghcr.io"]
+[rule."k8s.gcr.io"]
+[rule."registry.k8s.io"]
+[rule."quay.io"]
+[rule."nvcr.io"]

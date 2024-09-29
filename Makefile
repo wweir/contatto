@@ -8,12 +8,12 @@ test:
 	${GO} test ./...
 
 build: test
-	${GO} build -ldflags "\
+	${GO} build -trimpath -ldflags "\
 		-X main.version=$(shell git describe --tags --always) \
 		-X main.date=$(shell date +%Y-%m-%d)" \
 		-o bin/contatto .
 run: build
-	./bin/contatto proxy -c contatto.toml
+	./bin/contatto proxy --debug -c contatto.toml
 
 clean:
 	rm -f ./bin/contatto
