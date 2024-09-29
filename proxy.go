@@ -80,7 +80,11 @@ func (c *ProxyCmd) Run() error {
 		// rewrite path, follow the mapping rule
 		_, ps, _ := router.Lookup(r.Out.Method, r.Out.URL.Path)
 		if len(ps) == 0 {
-			log.Error("rewrite missing", "method", r.Out.Method, "url", r.Out.URL.String(), "ps", ps)
+			switch r.Out.URL.Path {
+			case "/v2/":
+			default:
+				log.Error("rewrite missing", "method", r.Out.Method, "url", r.Out.URL.String(), "ps", ps)
+			}
 			return
 		}
 
