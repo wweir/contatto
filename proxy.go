@@ -20,6 +20,8 @@ type ProxyCmd struct {
 }
 
 func (c *ProxyCmd) Run(config *conf.Config) error {
+	slog.Info("Starting proxy", "version", conf.Version, "date", conf.Date, "config", config)
+
 	authorizer := docker.NewDockerAuthorizer(
 		docker.WithAuthCreds(func(host string) (string, string, error) {
 			return config.Registry[host].ReadAuthFromDockerConfig(config.DockerConfigFile)

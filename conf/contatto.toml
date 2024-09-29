@@ -1,6 +1,6 @@
-addr = "127.0.0.1:8080"
+addr = "127.0.0.1:9527"
 ## Retrieve authentication information from the Docker configuration file if the username and password are not specified.
-docker_config_file = "${HOME}/.docker/config.json"
+# docker_config_file = "${HOME}/.docker/config.json"
 
 # if the field in rule is empty, use the value in base_rule.
 [base_rule]

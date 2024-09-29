@@ -13,10 +13,10 @@ import (
 
 var cli struct {
 	Config string `short:"c" required:"" default:"/etc/contatto.toml"`
-	Debug  bool   `help:"debug mode"`
+	Debug  bool   `help:"Enable debug logging"`
 
 	Install *InstallCmd `cmd:"" help:"install contatto"`
-	Proxy   *ProxyCmd   `cmd:"" help:"run as registry proxy"`
+	Proxy   *ProxyCmd   `cmd:"" help:"Execute Contatto as a registry proxy."`
 }
 
 func main() {
@@ -27,7 +27,8 @@ func main() {
 
 	ctx := kong.Parse(&cli,
 		kong.UsageOnError(),
-		kong.Description(fmt.Sprintf(`Contatto %s (%s %s)`, conf.Version, conf.Branch, conf.Date)),
+		kong.Description(fmt.Sprintf(
+			`Contatto %s(%s) is a container registry transparent proxy.`, conf.Version, conf.Date)),
 	)
 
 	config, err := conf.ReadConfig(cli.Config)

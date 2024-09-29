@@ -1,11 +1,16 @@
-addr: "127.0.0.1:8080"
-docker_config_file: "${HOME}/.docker/config.json"
+addr: "127.0.0.1:9527"
+# docker_config_file: "${HOME}/.docker/config.json"
+# on_missing_tpl: |-
+#   ssh <PROXY_SERVER> -- \
+#     'docker pull {{.raw}} && docker tag {{.raw}} {{.mirror}} && docker push {{.mirror}}'
 base_rule:
   mirror_registry: mirror-registry
   path_tpl: "{{.Registry}}/{{.Project}}-{{.Repo}}:{{.Tag}}"
 registry:
   "<local-registry>:5000":
     alias: mirror-registry
+    # user: "my_username_1"
+    # password: "my_password_1"
 rule:
   docker.io: {}
   gcr.io: {}

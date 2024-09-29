@@ -1,0 +1,13 @@
+[Unit]
+Description=Contatto proxy server
+After=network.target
+
+[Service]
+Type=simple
+User=root # Change the user to execute the Docker command.
+ExecStart=/bin/contatto proxy
+Restart=on-failure
+RestartSec=1min
+
+[Install]
+WantedBy=multi-user.target

@@ -7,10 +7,10 @@ test:
 	${GO} vet ./...
 	${GO} test ./...
 
-build: test
+build:
 	${GO} build -trimpath -ldflags "\
-		-X main.version=$(shell git describe --tags --always) \
-		-X main.date=$(shell date +%Y-%m-%d)" \
+		-X github.com/wweir/contatto/conf.Version=$(shell git describe --tags --always) \
+		-X github.com/wweir/contatto/conf.Date=$(shell date +%Y-%m-%d)" \
 		-o bin/contatto .
 run: build
 	./bin/contatto proxy --debug -c contatto.toml

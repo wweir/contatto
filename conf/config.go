@@ -3,7 +3,6 @@ package conf
 import (
 	"encoding/json"
 	"fmt"
-	"log/slog"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -15,7 +14,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var Branch, Version, Date string
+var Version, Date string
 
 type Config struct {
 	Addr             string
@@ -62,8 +61,6 @@ func ReadConfig(file string) (*Config, error) {
 	if err := decoder.Decode(decodeM); err != nil {
 		return nil, fmt.Errorf("mapstructure config: %w", err)
 	}
-
-	slog.Info("Starting with config", "branch", Branch, "version", Version, "date", Date, "config", c)
 
 	for host, registry := range c.Registry {
 		if registry.registry == "" {
