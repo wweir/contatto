@@ -14,6 +14,7 @@ build:
 		-o bin/contatto .
 run: build
 	./bin/contatto proxy --debug -c contatto.toml
-
+install: build
+	sudo install -m 0755 ./bin/contatto /bin/contatto
 clean:
 	rm -f ./bin/contatto

@@ -62,6 +62,18 @@ func ReadConfig(file string) (*Config, error) {
 		return nil, fmt.Errorf("mapstructure config: %w", err)
 	}
 
+	return c.Validate()
+}
+
+func (c *Config) Validate() (*Config, error) {
+	if c.Addr == "" {
+		return nil, fmt.Errorf("addr is required")
+	}
+
+	if c.BaseRule.MirrorRegistry == "" {
+		return nil, fmt.Errorf("base_rule.mirror_registry is required")
+	}
+
 	for host, registry := range c.Registry {
 		if registry.registry == "" {
 			registry.registry = host
@@ -92,12 +104,14 @@ func ReadConfig(file string) (*Config, error) {
 		if rule.PathTpl == "" {
 			rule.pathTpl = c.BaseRule.pathTpl
 		}
+		if rule.pathTpl == nil {
+			return nil, fmt.Errorf(`rule."%s".path_tpl is required`, registry)
+		}
 		if rule.OnMissingTpl == "" {
 			rule.onMissingTpl = c.BaseRule.onMissingTpl
 		}
 	}
-
-	return &c, nil
+	return c, nil
 }
 
 var envRe = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)

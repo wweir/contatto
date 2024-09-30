@@ -7,7 +7,6 @@ require (
 	github.com/containerd/containerd/v2 v2.0.0-rc.4
 	github.com/go-viper/mapstructure/v2 v2.2.1
 	github.com/julienschmidt/httprouter v1.3.0
-	github.com/lmittmann/tint v1.0.5
 	github.com/pelletier/go-toml/v2 v2.2.3
 	gopkg.in/yaml.v3 v3.0.1
 )
