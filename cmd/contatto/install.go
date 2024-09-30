@@ -25,13 +25,13 @@ func (c *InstallInteractiveCmd) Run(config *conf.Config) error {
 }
 
 type InstallDockerCmd struct {
-	File string `arg:"" required:"" default:"/etc/docker/daemon.json" help:"dockerd config file, default: /etc/docker/daemon.json"`
+	DockerConfigFile string `arg:"" required:"" default:"/etc/docker/daemon.json" help:"dockerd config file, default: /etc/docker/daemon.json"`
 }
 
 func (c *InstallDockerCmd) Run(config *conf.Config) error {
-	fmt.Printf("inject mirror http://%s into docker config: %s\n", config.Addr, c.File)
+	fmt.Printf("inject mirror http://%s into docker config: %s\n", config.Addr, c.DockerConfigFile)
 
-	f, err := os.Open(c.File)
+	f, err := os.Open(c.DockerConfigFile)
 	if err != nil {
 		return err
 	}
@@ -56,7 +56,7 @@ func (c *InstallDockerCmd) Run(config *conf.Config) error {
 
 	dockerConfig["registry-mirrors"] = append([]any{proxyAddr}, mirrors...)
 
-	if err := SafeRewriteFile(c.File, func(w io.Writer) error {
+	if err := SafeRewriteFile(c.DockerConfigFile, func(w io.Writer) error {
 		return json.NewEncoder(w).Encode(dockerConfig)
 	}); err != nil {
 		return fmt.Errorf("encode docker config: %w", err)
@@ -67,13 +67,13 @@ func (c *InstallDockerCmd) Run(config *conf.Config) error {
 }
 
 type InstallContainerdCmd struct {
-	File string `arg:"" required:"" default:"/etc/containerd/config.toml" help:"containerd config file, default: /etc/containerd/config.toml"`
+	ContainerdConfigFile string `arg:"" required:"" default:"/etc/containerd/config.toml" help:"containerd config file, default: /etc/containerd/config.toml"`
 }
 
 func (c *InstallContainerdCmd) Run(config *conf.Config) error {
-	fmt.Printf("inject proxy http://%s into containerd config: %s\n", config.Addr, c.File)
+	fmt.Printf("inject proxy http://%s into containerd config: %s\n", config.Addr, c.ContainerdConfigFile)
 
-	f, err := os.Open(c.File)
+	f, err := os.Open(c.ContainerdConfigFile)
 	if err != nil {
 		return err
 	}
@@ -130,7 +130,7 @@ func (c *InstallContainerdCmd) installContainerd(config *conf.Config,
 		fmt.Println("inject proxy addr into containerd cri mirror field")
 		c.injectInRegistryMirrorsField(config, registry["mirrors"].(map[string]any))
 
-		if err := SafeRewriteFile(c.File, func(w io.Writer) error {
+		if err := SafeRewriteFile(c.ContainerdConfigFile, func(w io.Writer) error {
 			return toml.NewEncoder(w).Encode(containerdConfig)
 		}); err != nil {
 			return fmt.Errorf("encode containerd config: %w", err)
@@ -142,10 +142,10 @@ func (c *InstallContainerdCmd) installContainerd(config *conf.Config,
 	} else {
 		// 3. config has no image registry config, inject config_path
 
-		registry["config_path"] = filepath.Dir(c.File) + "/certs.d"
+		registry["config_path"] = filepath.Dir(c.ContainerdConfigFile) + "/certs.d"
 		fmt.Println("inject proxy addr into containerd cri config_path", "dir", registry["config_path"])
 
-		if err := SafeRewriteFile(c.File, func(w io.Writer) error {
+		if err := SafeRewriteFile(c.ContainerdConfigFile, func(w io.Writer) error {
 			return toml.NewEncoder(w).Encode(containerdConfig)
 		}); err != nil {
 			return fmt.Errorf("encode containerd config: %w", err)

@@ -17,10 +17,7 @@ func RetryToRewriteResp(w *http.Response, reason string,
 		return fmt.Errorf("failed to retry request: %w", err)
 	}
 
-	w.StatusCode = resp.StatusCode
-	w.Status = resp.Status
-	w.Body = resp.Body
-
+	*w = *resp
 	return nil
 }
 
