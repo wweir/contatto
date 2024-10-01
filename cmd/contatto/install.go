@@ -33,6 +33,15 @@ func (c *InstallDockerCmd) Run(config *conf.Config) error {
 
 	f, err := os.Open(c.DockerConfigFile)
 	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Printf(`docker config file not found, please generate it first:
+sudo mkdir -p /etc/docker/
+sudo tee %s <<EOF
+{
+  "registry-mirrors": ["http://%s"]
+}
+`, c.DockerConfigFile, config.Addr)
+		}
 		return err
 	}
 	defer f.Close()
@@ -43,13 +52,14 @@ func (c *InstallDockerCmd) Run(config *conf.Config) error {
 	}
 
 	if dockerConfig["registry-mirrors"] == nil {
-		dockerConfig["registry-mirrors"] = []string{}
+		dockerConfig["registry-mirrors"] = []any{}
 	}
 
 	mirrors := dockerConfig["registry-mirrors"].([]any)
 	proxyAddr := "http://" + config.Addr
 	for _, mirror := range mirrors {
-		if mirror.(string) == proxyAddr {
+		if mirror == proxyAddr {
+			fmt.Println("proxy addr already exists in docker config")
 			return nil
 		}
 	}
@@ -62,7 +72,8 @@ func (c *InstallDockerCmd) Run(config *conf.Config) error {
 		return fmt.Errorf("encode docker config: %w", err)
 	}
 
-	fmt.Println("Docker config updated, please restart docker service manually.")
+	fmt.Println(`Docker config updated, please restart docker service manually:
+	sudo systemctl restart docker`)
 	return nil
 }
 
@@ -75,6 +86,11 @@ func (c *InstallContainerdCmd) Run(config *conf.Config) error {
 
 	f, err := os.Open(c.ContainerdConfigFile)
 	if err != nil {
+		if os.IsNotExist(err) {
+			fmt.Println(`containerd config file not found, please generate it first:
+	sudo mkdir -p /etc/containerd/
+	containerd config default | sudo tee /etc/containerd/config.toml`)
+		}
 		return err
 	}
 	defer f.Close()
