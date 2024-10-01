@@ -11,9 +11,10 @@ build:
 	${GO} build -trimpath -ldflags "\
 		-X github.com/wweir/contatto/conf.Version=$(shell git describe --tags --always) \
 		-X github.com/wweir/contatto/conf.Date=$(shell date +%Y-%m-%d)" \
-		-o bin/contatto .
+		-o bin/contatto ./cmd/contatto
 run: build
 	./bin/contatto proxy --debug -c contatto.toml
-
+install: build
+	sudo install -m 0755 ./bin/contatto /bin/contatto
 clean:
 	rm -f ./bin/contatto

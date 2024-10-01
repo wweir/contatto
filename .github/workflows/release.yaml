@@ -24,8 +24,8 @@ jobs:
 
           mkdir -p etc/systemd/system
           mv conf/contatto.toml etc/contatto.toml
-          mv .github/contatto.service etc/systemd/system/contatto.service
-          file_list=(bin/contatto etc/contatto.toml etc/systemd/system/contatto.service)
+          mv .github/contatto.@service etc/systemd/system/contatto.@service
+          file_list=(bin/contatto etc/contatto.toml etc/systemd/system/contatto.@service)
           echo package files: ${file_list[*]}
 
           make build GO='GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go'

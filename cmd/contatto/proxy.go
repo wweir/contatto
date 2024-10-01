@@ -129,12 +129,14 @@ func (c *ProxyCmd) Run(config *conf.Config) error {
 				slog.Error("failed to add responses", "err", err)
 			}
 
-			c.RetryToRewriteResp(w, "auth", func(req *http.Request) (*http.Response, error) {
+			if err := RetryToRewriteResp(w, "auth", func(req *http.Request) (*http.Response, error) {
 				if err := authorizer.Authorize(req.Context(), req); err != nil {
 					return nil, fmt.Errorf("failed to authorize: %w", err)
 				}
 				return http.DefaultClient.Do(req)
-			})
+			}); err != nil {
+				slog.Error("failed to rewrite resp for authorize", "err", err)
+			}
 
 		case 404:
 			rawStr := w.Request.Header.Get("Contatto-Raw-Image")
@@ -170,7 +172,9 @@ func (c *ProxyCmd) Run(config *conf.Config) error {
 				}
 				slog.Info("on missing command finished", "took", time.Since(startTime))
 
-				c.RetryToRewriteResp(w, "on_missing", http.DefaultClient.Do)
+				if err := RetryToRewriteResp(w, "on_missing", http.DefaultClient.Do); err != nil {
+					slog.Error("failed to rewrite resp for missing mirror image", "err", err)
+				}
 			}
 
 		default:
@@ -180,22 +184,6 @@ func (c *ProxyCmd) Run(config *conf.Config) error {
 	}
 
 	return http.ListenAndServe(config.Addr, proxy)
-}
-
-func (c *ProxyCmd) RetryToRewriteResp(w *http.Response, reason string, do func(req *http.Request) (*http.Response, error)) {
-	req := w.Request.Clone(w.Request.Context())
-	req.RequestURI = ""
-	resp, err := do(req)
-	if err != nil {
-		slog.Warn("failed to retry request", "reason", reason, "err", err)
-		return
-	}
-
-	w.StatusCode = resp.StatusCode
-	w.Status = resp.Status
-	w.Body = resp.Body
-
-	slog.Info("rewrite response", "reason", reason, "url", req.URL.String())
 }
 
 type ImagePattern struct {
