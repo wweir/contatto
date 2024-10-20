@@ -3,9 +3,10 @@ package conf
 import (
 	"encoding/base64"
 	"encoding/json"
-	"log/slog"
 	"os"
 	"strings"
+
+	"github.com/sower-proxy/deferlog/v2"
 )
 
 type Registry struct {
@@ -32,13 +33,14 @@ func (r *Registry) Host() string {
 
 // https://github.com/docker/cli/blob/a18c896928828eca5eb91e816f009268fe0cd995/cli/config/configfile/file.go#L232
 func (r *Registry) ReadAuthFromDockerConfig(configFile string) (user, password string, err error) {
+	defer func() { deferlog.DebugWarn(err, "ReadAuthFromDockerConfig") }()
+
 	if r.User != "" {
 		return r.User, r.Password, nil
 	}
 
 	f, err := os.Open(configFile)
 	if err != nil {
-		slog.Error("open docker config file", "file", configFile, "err", err)
 		return "", "", err
 	}
 	defer f.Close()
@@ -51,13 +53,11 @@ func (r *Registry) ReadAuthFromDockerConfig(configFile string) (user, password s
 
 	de := json.NewDecoder(f)
 	if err := de.Decode(&dockerConfig); err != nil {
-		slog.Error("failed to decode docker config", "err", err)
 		return "", "", err
 	}
 
 	auth, ok := dockerConfig.Auths[r.registry]
 	if !ok {
-		slog.Error("registry not found in docker config", "registry", r.registry)
 		return "", "", err
 	}
 
@@ -67,17 +67,14 @@ func (r *Registry) ReadAuthFromDockerConfig(configFile string) (user, password s
 	authByte := []byte(authStr)
 	n, err := base64.StdEncoding.Decode(decoded, authByte)
 	if err != nil {
-		slog.Error("failed to decode auth", "registry", r.registry, "err", err)
 		return "", "", err
 	}
 	if n > decLen {
-		slog.Error("something went wrong decoding auth config", "registry", r.registry)
 		return "", "", err
 	}
 
 	userName, password, ok := strings.Cut(string(decoded), ":")
 	if !ok || userName == "" {
-		slog.Error("failed to parse auth", "registry", r.registry, "err", err)
 		return "", "", err
 	}
 

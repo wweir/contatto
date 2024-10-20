@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"sync"
 	"text/template"
+
+	"github.com/sower-proxy/deferlog/v2"
 )
 
 type MirrorRule struct {
@@ -15,6 +17,8 @@ type MirrorRule struct {
 }
 
 func (r *MirrorRule) ParseTemplate() (err error) {
+	defer func() { deferlog.DebugError(err, "ParseTemplate") }()
+
 	if r.PathTpl != "" {
 		r.pathTpl, err = template.New("path").Parse(r.PathTpl)
 		if err != nil {

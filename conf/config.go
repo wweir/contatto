@@ -11,6 +11,7 @@ import (
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/pelletier/go-toml/v2"
+	"github.com/sower-proxy/deferlog/v2"
 	"gopkg.in/yaml.v3"
 )
 
@@ -24,7 +25,9 @@ type Config struct {
 	Rule             map[string]*MirrorRule
 }
 
-func ReadConfig(file string) (*Config, error) {
+func ReadConfig(file string) (_ *Config, err error) {
+	defer func() { deferlog.DebugError(err, "ReadConfig", "file", file) }()
+
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
@@ -50,7 +53,7 @@ func ReadConfig(file string) (*Config, error) {
 			if f.Kind() != reflect.String || t.Kind() != reflect.String {
 				return data, nil
 			}
-			return c.ReadSHEnv(data.(string))
+			return c.renderEnv(data.(string)), nil
 		},
 		TagName: "json",
 		Result:  &c,
@@ -65,7 +68,9 @@ func ReadConfig(file string) (*Config, error) {
 	return c.Validate()
 }
 
-func (c *Config) Validate() (*Config, error) {
+func (c *Config) Validate() (_ *Config, err error) {
+	defer func() { deferlog.DebugError(err, "Validate", "config", c) }()
+
 	if c.Addr == "" {
 		return nil, fmt.Errorf("addr is required")
 	}
@@ -116,10 +121,10 @@ func (c *Config) Validate() (*Config, error) {
 
 var envRe = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
 
-func (c *Config) ReadSHEnv(value string) (string, error) {
+func (c *Config) renderEnv(value string) string {
 	idxPairs := envRe.FindAllStringIndex(value, -1)
 	if len(idxPairs) == 0 {
-		return value, nil
+		return value
 	}
 
 	newValue := ""
@@ -135,7 +140,7 @@ func (c *Config) ReadSHEnv(value string) (string, error) {
 	}
 
 	lastIdx := idxPairs[len(idxPairs)-1][1]
-	return newValue + value[lastIdx:], nil
+	return newValue + value[lastIdx:]
 }
 
 func (c *Config) readBeforeByte(value string, idx int) byte {
