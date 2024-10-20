@@ -12,6 +12,7 @@ import (
 
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/julienschmidt/httprouter"
+	"github.com/sower-proxy/deferlog/v2"
 	"github.com/wweir/contatto/conf"
 )
 
@@ -117,19 +118,20 @@ func (c *ProxyCmd) Run(config *conf.Config) error {
 		ctx := docker.ContextWithAppendPullRepositoryScope(r.Out.Context(), dstImage.Project+"/"+dstImage.Repo)
 		if err := authorizer.Authorize(ctx, r.Out); err != nil {
 			slog.Error("failed to authorize", "err", err)
-			return
 		}
 	}
-	proxy.ModifyResponse = func(w *http.Response) error {
+	proxy.ModifyResponse = func(w *http.Response) (err error) {
+		defer func() { deferlog.DebugWarn(err, "ModifyResponse"); err = nil }()
+
 		switch w.StatusCode {
 		case 200, 307:
 		case 401:
 			slog.Debug("auth failed", "url", w.Request.URL.String())
 			if err := authorizer.AddResponses(w.Request.Context(), []*http.Response{w}); err != nil {
-				slog.Error("failed to add responses", "err", err)
+				return fmt.Errorf("failed to add responses: %w", err)
 			}
 
-			c.RetryToRewriteResp(w, "auth", func(req *http.Request) (*http.Response, error) {
+			return RetryToRewriteResp(w, "auth", func(req *http.Request) (*http.Response, error) {
 				if err := authorizer.Authorize(req.Context(), req); err != nil {
 					return nil, fmt.Errorf("failed to authorize: %w", err)
 				}
@@ -155,8 +157,7 @@ func (c *ProxyCmd) Run(config *conf.Config) error {
 				"Raw": raw, "Mirror": mirror, "raw": raw.String(), "mirror": mirror.String(),
 			})
 			if err != nil {
-				slog.Error("failed to render on missing command", "err", err)
-				return nil
+				return fmt.Errorf("failed to render on missing command: %w", err)
 			}
 
 			if cmdline != "" {
@@ -165,12 +166,13 @@ func (c *ProxyCmd) Run(config *conf.Config) error {
 				cmd := exec.Command("sh", "-c", cmdline)
 				out, err := cmd.CombinedOutput()
 				if err != nil {
-					slog.Error("failed to run on missing command", "output", string(out), "err", err)
-					return nil
+					return fmt.Errorf("failed to run on missing command, output: %s, err: %w", out, err)
 				}
 				slog.Info("on missing command finished", "took", time.Since(startTime))
 
-				c.RetryToRewriteResp(w, "on_missing", http.DefaultClient.Do)
+				if err := RetryToRewriteResp(w, "on_missing", http.DefaultClient.Do); err != nil {
+					return fmt.Errorf("failed to rewrite response: %w", err)
+				}
 			}
 
 		default:
@@ -180,22 +182,6 @@ func (c *ProxyCmd) Run(config *conf.Config) error {
 	}
 
 	return http.ListenAndServe(config.Addr, proxy)
-}
-
-func (c *ProxyCmd) RetryToRewriteResp(w *http.Response, reason string, do func(req *http.Request) (*http.Response, error)) {
-	req := w.Request.Clone(w.Request.Context())
-	req.RequestURI = ""
-	resp, err := do(req)
-	if err != nil {
-		slog.Warn("failed to retry request", "reason", reason, "err", err)
-		return
-	}
-
-	w.StatusCode = resp.StatusCode
-	w.Status = resp.Status
-	w.Body = resp.Body
-
-	slog.Info("rewrite response", "reason", reason, "url", req.URL.String())
 }
 
 type ImagePattern struct {
