@@ -143,8 +143,13 @@ jobs:
               # For Debian packages, build using ARCHITECTURE variable
               ARCHITECTURE=${{ matrix.arch }} make ${{ matrix.target }}
               ;;
-            "arch"|"rpm")
-              # For Arch/RPM packages, pass architecture as parameter  
+            "arch")
+              # For Arch packages, use archlinux directory
+              ./deploy/archlinux/create-arch-fallback.sh \
+                $(git describe --tags --always || echo 'dev') ${{ matrix.arch }}
+              ;;
+            "rpm")
+              # For RPM packages, pass architecture as parameter  
               ./deploy/${{ matrix.package_type }}/create-${{ matrix.package_type }}-fallback.sh \
                 $(git describe --tags --always || echo 'dev') ${{ matrix.arch }}
               ;;
