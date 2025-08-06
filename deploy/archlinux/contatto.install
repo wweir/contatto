@@ -1,0 +1,43 @@
+post_install() {
+    # Create system user and directories
+    systemd-sysusers contatto.conf
+    systemd-tmpfiles --create contatto.conf
+    
+    echo "Contatto has been installed."
+    echo ""
+    echo "To enable and start the service for a user (e.g., 'contatto'):"
+    echo "  sudo systemctl enable contatto@contatto.service"
+    echo "  sudo systemctl start contatto@contatto.service"
+    echo ""
+    echo "Configuration file: /etc/contatto.toml"
+    echo "Edit this file to configure your registry mirrors and rules."
+}
+
+post_upgrade() {
+    # Ensure system user and directories exist
+    systemd-sysusers contatto.conf
+    systemd-tmpfiles --create contatto.conf
+    
+    echo "Contatto has been upgraded."
+    echo ""
+    echo "If you have made changes to the configuration,"
+    echo "you may need to restart the service:"
+    echo "  sudo systemctl restart contatto@contatto.service"
+}
+
+pre_remove() {
+    # Stop and disable all contatto services
+    for service in $(systemctl list-units --type=service --state=active contatto@*.service --no-legend | cut -d' ' -f1); do
+        systemctl stop "$service"
+        systemctl disable "$service"
+    done
+}
+
+post_remove() {
+    echo "Contatto has been removed."
+    echo ""
+    echo "The system user 'contatto' and data directories have been preserved."
+    echo "To remove them manually:"
+    echo "  sudo userdel contatto"
+    echo "  sudo rm -rf /var/lib/contatto /var/log/contatto"
+}

@@ -1,4 +1,4 @@
-package conf
+package config
 
 import (
 	"encoding/json"
@@ -17,15 +17,26 @@ import (
 
 var Version, Date string
 
-type Config struct {
+var Config *ConfigStruct
+
+type ConfigStruct struct {
 	Addr             string
 	DockerConfigFile string
 	BaseRule         MirrorRule
 	Registry         map[string]*Registry
 	Rule             map[string]*MirrorRule
+	MirrorMapping    map[string]string
+	VersionCheck     *VersionCheckConfig `json:"version_check,omitempty"`
 }
 
-func ReadConfig(file string) (_ *Config, err error) {
+// VersionCheckConfig configures version consistency checking
+type VersionCheckConfig struct {
+	Enabled       bool   `json:"enabled"`        // Enable version checking
+	CheckInterval string `json:"check_interval"` // Interval between checks (e.g., "5m")
+	MaxQueueSize  int    `json:"max_queue_size"` // Maximum update queue size
+}
+
+func ReadConfig(file string) (_ *ConfigStruct, err error) {
 	defer func() { deferlog.DebugError(err, "ReadConfig", "file", file) }()
 
 	f, err := os.Open(file)
@@ -47,7 +58,7 @@ func ReadConfig(file string) (_ *Config, err error) {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
 
-	c := Config{}
+	c := ConfigStruct{}
 	decoder, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook: func(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
 			if f.Kind() != reflect.String || t.Kind() != reflect.String {
@@ -68,7 +79,7 @@ func ReadConfig(file string) (_ *Config, err error) {
 	return c.Validate()
 }
 
-func (c *Config) Validate() (_ *Config, err error) {
+func (c *ConfigStruct) Validate() (_ *ConfigStruct, err error) {
 	defer func() { deferlog.DebugError(err, "Validate", "config", c) }()
 
 	if c.Addr == "" {
@@ -121,7 +132,7 @@ func (c *Config) Validate() (_ *Config, err error) {
 
 var envRe = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
 
-func (c *Config) renderEnv(value string) string {
+func (c *ConfigStruct) renderEnv(value string) string {
 	idxPairs := envRe.FindAllStringIndex(value, -1)
 	if len(idxPairs) == 0 {
 		return value
@@ -143,9 +154,21 @@ func (c *Config) renderEnv(value string) string {
 	return newValue + value[lastIdx:]
 }
 
-func (c *Config) readBeforeByte(value string, idx int) byte {
+func (c *ConfigStruct) readBeforeByte(value string, idx int) byte {
 	if idx == 0 {
 		return 0
 	}
 	return value[idx-1]
+}
+
+func (c *ConfigStruct) GetRegistry(host string) *Registry {
+	if c == nil {
+		return &Registry{registry: host}
+	}
+
+	if reg, ok := c.Registry[host]; ok {
+		return reg
+	}
+
+	return &Registry{registry: host}
 }

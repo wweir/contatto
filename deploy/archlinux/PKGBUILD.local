@@ -1,0 +1,80 @@
+# Maintainer: wweir <wweir@wweir.cc>
+# PKGBUILD for local building without git dependency
+pkgname=contatto-local
+pkgver=VERSION_PLACEHOLDER
+pkgrel=1
+pkgdesc="Container registry transparent proxy"
+arch=('x86_64' 'aarch64' 'armv7h')
+url="https://github.com/wweir/contatto"
+license=('MIT')
+depends=('glibc')
+makedepends=('go')
+backup=('etc/contatto.toml')
+install=contatto.install
+source=()
+sha256sums=()
+
+build() {
+    # Build from the project root directory
+    cd "$srcdir/../../.."
+    export CGO_ENABLED=0
+    export GODEBUG=httpmuxgo121=1
+    
+    go build -trimpath -ldflags "\
+        -X github.com/wweir/contatto/config.Version=${pkgver} \
+        -X github.com/wweir/contatto/config.Date=$(date +%Y-%m-%d)" \
+        -o contatto ./cmd/contatto
+    
+    # Move binary to srcdir for packaging
+    mv contatto "$srcdir/"
+}
+
+check() {
+    cd "$srcdir/../../.."
+    export CGO_ENABLED=0
+    export GODEBUG=httpmuxgo121=1
+    go test ./...
+}
+
+package() {
+    cd "$srcdir/../../.."
+    
+    # Install binary from srcdir
+    install -Dm755 "$srcdir/contatto" "$pkgdir/usr/bin/contatto"
+    
+    # Install configuration file
+    install -Dm644 config/contatto.example.toml "$pkgdir/etc/contatto.toml"
+    
+    # Install systemd service
+    install -Dm644 deploy/systemd/contatto@.service "$pkgdir/usr/lib/systemd/system/contatto@.service"
+    
+    # Create directories
+    install -dm755 "$pkgdir/var/lib/contatto"
+    install -dm755 "$pkgdir/var/log/contatto"
+    
+    # Install sysusers.d file
+    cat > contatto.sysusers << EOF
+u contatto - "Contatto proxy daemon" /var/lib/contatto /bin/false
+EOF
+    install -Dm644 contatto.sysusers "$pkgdir/usr/lib/sysusers.d/contatto.conf"
+    
+    # Install tmpfiles.d file
+    cat > contatto.tmpfiles << EOF
+d /var/lib/contatto 0755 contatto contatto -
+d /var/log/contatto 0755 contatto contatto -
+EOF
+    install -Dm644 contatto.tmpfiles "$pkgdir/usr/lib/tmpfiles.d/contatto.conf"
+    
+    # Install license
+    if [ -f LICENSE ]; then
+        install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    fi
+    
+    # Install documentation
+    if [ -f README.md ]; then
+        install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    fi
+    if [ -f deploy/README.md ]; then
+        install -Dm644 deploy/README.md "$pkgdir/usr/share/doc/$pkgname/DEPLOYMENT.md"
+    fi
+}

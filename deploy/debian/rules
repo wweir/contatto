@@ -1,0 +1,35 @@
+#!/usr/bin/make -f
+
+# Uncomment this to turn on verbose mode.
+# export DH_VERBOSE=1
+
+# Go build flags
+export CGO_ENABLED=0
+export GODEBUG=httpmuxgo121=1
+
+%:
+	dh $@ --builddirectory=_build --buildsystem=golang --with=golang
+
+override_dh_auto_build:
+	go build -trimpath -ldflags "\
+		-X github.com/wweir/contatto/config.Version=$(shell git describe --tags --always || echo 'dev') \
+		-X github.com/wweir/contatto/config.Date=$(shell date +%Y-%m-%d)" \
+		-o contatto ./cmd/contatto
+
+override_dh_auto_install:
+	# Install binary
+	install -D -m 0755 contatto debian/contatto/usr/bin/contatto
+	
+	# Install systemd service file
+	install -D -m 0644 ../systemd/contatto@.service debian/contatto/lib/systemd/system/contatto@.service
+	
+	# Install configuration file
+	install -D -m 0644 ../config/contatto.example.toml debian/contatto/etc/contatto.toml
+	
+	# Create directories
+	install -d debian/contatto/var/lib/contatto
+	install -d debian/contatto/var/log/contatto
+
+override_dh_auto_clean:
+	rm -f contatto
+	rm -rf _build

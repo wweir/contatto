@@ -1,0 +1,41 @@
+addr = "127.0.0.1:9527"
+
+# if the field in rule is empty, use the value in base_rule.
+[base_rule]
+mirror_registry = "mirror-registry"
+## Available parameters in template: {{.raw}} {{.mirror}}
+## {{.Raw.Registry}} {{.Raw.Alias}} {{.Raw.Project}} {{.Raw.Repo}} {{.Raw.Tag}}
+## {{.Mirror.Registry}} {{.Mirror.Alias}} {{.Mirror.Project}} {{.Mirror.Repo}} {{.Mirror.Tag}}
+path_tpl = "oss-mirrors/{{.Registry}}-{{.Project}}-{{.Repo}}:{{.Tag}}"
+## The cmd will be executed when the image is not found in the mirror registry.
+on_missing_tpl = """
+ssh bwg -- \
+  'docker pull {{.raw}} && docker tag {{.raw}} {{.mirror}} && docker push {{.mirror}}'
+"""
+
+[mirror_mapping]
+"docker.io" = "mirror-registry"
+"gcr.io" = "mirror-registry"
+"ghcr.io" = "mirror-registry"
+"k8s.gcr.io" = "mirror-registry"
+"registry.k8s.io" = "mirror-registry"
+"quay.io" = "mirror-registry"
+"nvcr.io" = "mirror-registry"
+
+[registry."swr.cn-east-3.myhuaweicloud.com"]
+user = "cn-east-3@N35ZKIKRSHD8BTQ23XLE"
+password = "1e475181de8148a2eb95e0e3c5619518cdb7c560e8d7c33b2ba6d6079074e012"
+mirror_tpl = "oss-mirrors/{{.Registry}}-{{.Project}}-{{.Repo}}:{{.Tag}}"
+on_missing_tpl = """
+ssh bwg -- \
+  'docker pull {{.raw}} && docker tag {{.raw}} {{.mirror}} && docker push {{.mirror}}'
+"""
+[registry."registry.cn-shanghai.aliyuncs.com"]
+alias = "mirror-registry"
+user = "wweir@163.com"
+password = "Aliyun218"
+mirror_tpl = "oss-mirrors/{{.Registry}}-{{.Project}}-{{.Repo}}:{{.Tag}}"
+on_missing_tpl = """
+ssh bwg -- \
+  'docker pull {{.raw}} && docker tag {{.raw}} {{.mirror}} && docker push {{.mirror}}'
+"""

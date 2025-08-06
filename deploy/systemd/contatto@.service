@@ -1,0 +1,19 @@
+[Unit]
+Description=Contatto container registry proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=%i
+ExecStart=/usr/bin/contatto proxy --config=/etc/contatto.toml
+Restart=always
+RestartSec=5s
+
+# Basic security
+NoNewPrivileges=yes
+ProtectSystem=strict
+ReadWritePaths=/var/lib/contatto
+
+[Install]
+WantedBy=multi-user.target
