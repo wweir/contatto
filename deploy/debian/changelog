@@ -1,0 +1,8 @@
+contatto (1.0.0-1) unstable; urgency=medium
+
+  * Initial Debian package release
+  * Container registry transparent proxy
+  * Support for Docker and containerd configuration injection
+  * Multi-architecture build support
+
+ -- wweir <wweir@wweir.cc>  $(shell date -R)

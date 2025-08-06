@@ -1,0 +1,28 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    remove|upgrade|deconfigure)
+        # Stop and disable systemd service
+        if [ -d /run/systemd/system ]; then
+            if systemctl is-active contatto@contatto >/dev/null 2>&1; then
+                systemctl stop contatto@contatto
+            fi
+            if systemctl is-enabled contatto@contatto >/dev/null 2>&1; then
+                systemctl disable contatto@contatto
+            fi
+        fi
+        ;;
+        
+    failed-upgrade)
+        ;;
+        
+    *)
+        echo "prerm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

@@ -1,0 +1,28 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    purge)
+        # Remove user and group
+        if getent passwd contatto >/dev/null; then
+            deluser --system contatto || true
+        fi
+        
+        # Remove directories (but preserve data if user wants to keep it)
+        # Only remove if empty
+        rmdir /var/lib/contatto 2>/dev/null || true
+        rmdir /var/log/contatto 2>/dev/null || true
+        ;;
+        
+    remove|upgrade|failed-upgrade|abort-install|abort-upgrade|disappear)
+        ;;
+        
+    *)
+        echo "postrm called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0

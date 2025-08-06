@@ -1,0 +1,83 @@
+# Maintainer: wweir <wweir@wweir.cc>
+pkgname=contatto
+pkgver=1.0.0
+pkgrel=1
+pkgdesc="Container registry transparent proxy"
+arch=('x86_64' 'aarch64' 'armv7h')
+url="https://github.com/wweir/contatto"
+license=('MIT')
+depends=('glibc')
+makedepends=('go' 'git')
+backup=('etc/contatto.toml')
+source=("$pkgname::git+https://github.com/wweir/contatto.git")
+sha256sums=('SKIP')
+
+pkgver() {
+    cd "$pkgname"
+    git describe --tags --always | sed 's/^v//' | sed 's/-/./g'
+}
+
+prepare() {
+    cd "$pkgname"
+    export CGO_ENABLED=0
+    export GODEBUG=httpmuxgo121=1
+    go mod download
+}
+
+build() {
+    cd "$pkgname"
+    export CGO_ENABLED=0
+    export GODEBUG=httpmuxgo121=1
+    
+    local version=$(git describe --tags --always || echo 'dev')
+    local date=$(date +%Y-%m-%d)
+    
+    go build -trimpath -ldflags "\
+        -X github.com/wweir/contatto/config.Version=${version} \
+        -X github.com/wweir/contatto/config.Date=${date}" \
+        -o contatto ./cmd/contatto
+}
+
+check() {
+    cd "$pkgname"
+    export CGO_ENABLED=0
+    export GODEBUG=httpmuxgo121=1
+    go test ./...
+}
+
+package() {
+    cd "$pkgname"
+    
+    # Install binary
+    install -Dm755 contatto "$pkgdir/usr/bin/contatto"
+    
+    # Install configuration file
+    install -Dm644 config/contatto.example.toml "$pkgdir/etc/contatto.toml"
+    
+    # Install systemd service
+    install -Dm644 deploy/systemd/contatto@.service "$pkgdir/usr/lib/systemd/system/contatto@.service"
+    
+    # Create directories
+    install -dm755 "$pkgdir/var/lib/contatto"
+    install -dm755 "$pkgdir/var/log/contatto"
+    
+    # Install sysusers.d file for creating system user
+    cat > "$pkgdir/usr/lib/sysusers.d/contatto.conf" << EOF
+u contatto - "Contatto proxy daemon" /var/lib/contatto /bin/false
+EOF
+    install -Dm644 /dev/stdin "$pkgdir/usr/lib/sysusers.d/contatto.conf" < /dev/null
+    
+    # Install tmpfiles.d for creating directories with correct ownership
+    cat > "$pkgdir/usr/lib/tmpfiles.d/contatto.conf" << EOF
+d /var/lib/contatto 0755 contatto contatto -
+d /var/log/contatto 0755 contatto contatto -
+EOF
+    install -Dm644 /dev/stdin "$pkgdir/usr/lib/tmpfiles.d/contatto.conf" < /dev/null
+    
+    # Install license
+    install -Dm644 LICENSE "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+    
+    # Install documentation
+    install -Dm644 README.md "$pkgdir/usr/share/doc/$pkgname/README.md"
+    install -Dm644 deploy/README.md "$pkgdir/usr/share/doc/$pkgname/DEPLOYMENT.md"
+}

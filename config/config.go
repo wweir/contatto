@@ -1,4 +1,4 @@
-package conf
+package config
 
 import (
 	"encoding/json"
@@ -11,20 +11,34 @@ import (
 
 	"github.com/go-viper/mapstructure/v2"
 	"github.com/pelletier/go-toml/v2"
+	"github.com/sower-proxy/deferlog/v2"
 	"gopkg.in/yaml.v3"
 )
 
 var Version, Date string
 
-type Config struct {
+var Config *ConfigStruct
+
+type ConfigStruct struct {
 	Addr             string
 	DockerConfigFile string
 	BaseRule         MirrorRule
 	Registry         map[string]*Registry
 	Rule             map[string]*MirrorRule
+	MirrorMapping    map[string]string
+	VersionCheck     *VersionCheckConfig `json:"version_check,omitempty"`
 }
 
-func ReadConfig(file string) (*Config, error) {
+// VersionCheckConfig configures version consistency checking
+type VersionCheckConfig struct {
+	Enabled       bool   `json:"enabled"`        // Enable version checking
+	CheckInterval string `json:"check_interval"` // Interval between checks (e.g., "5m")
+	MaxQueueSize  int    `json:"max_queue_size"` // Maximum update queue size
+}
+
+func ReadConfig(file string) (_ *ConfigStruct, err error) {
+	defer func() { deferlog.DebugError(err, "ReadConfig", "file", file) }()
+
 	f, err := os.Open(file)
 	if err != nil {
 		return nil, err
@@ -44,13 +58,13 @@ func ReadConfig(file string) (*Config, error) {
 		return nil, fmt.Errorf("decode config: %w", err)
 	}
 
-	c := Config{}
+	c := ConfigStruct{}
 	decoder, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
 		DecodeHook: func(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
 			if f.Kind() != reflect.String || t.Kind() != reflect.String {
 				return data, nil
 			}
-			return c.ReadSHEnv(data.(string))
+			return c.renderEnv(data.(string)), nil
 		},
 		TagName: "json",
 		Result:  &c,
@@ -60,6 +74,20 @@ func ReadConfig(file string) (*Config, error) {
 	})
 	if err := decoder.Decode(decodeM); err != nil {
 		return nil, fmt.Errorf("mapstructure config: %w", err)
+	}
+
+	return c.Validate()
+}
+
+func (c *ConfigStruct) Validate() (_ *ConfigStruct, err error) {
+	defer func() { deferlog.DebugError(err, "Validate", "config", c) }()
+
+	if c.Addr == "" {
+		return nil, fmt.Errorf("addr is required")
+	}
+
+	if c.BaseRule.MirrorRegistry == "" {
+		return nil, fmt.Errorf("base_rule.mirror_registry is required")
 	}
 
 	for host, registry := range c.Registry {
@@ -92,20 +120,22 @@ func ReadConfig(file string) (*Config, error) {
 		if rule.PathTpl == "" {
 			rule.pathTpl = c.BaseRule.pathTpl
 		}
+		if rule.pathTpl == nil {
+			return nil, fmt.Errorf(`rule."%s".path_tpl is required`, registry)
+		}
 		if rule.OnMissingTpl == "" {
 			rule.onMissingTpl = c.BaseRule.onMissingTpl
 		}
 	}
-
-	return &c, nil
+	return c, nil
 }
 
 var envRe = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
 
-func (c *Config) ReadSHEnv(value string) (string, error) {
+func (c *ConfigStruct) renderEnv(value string) string {
 	idxPairs := envRe.FindAllStringIndex(value, -1)
 	if len(idxPairs) == 0 {
-		return value, nil
+		return value
 	}
 
 	newValue := ""
@@ -121,12 +151,24 @@ func (c *Config) ReadSHEnv(value string) (string, error) {
 	}
 
 	lastIdx := idxPairs[len(idxPairs)-1][1]
-	return newValue + value[lastIdx:], nil
+	return newValue + value[lastIdx:]
 }
 
-func (c *Config) readBeforeByte(value string, idx int) byte {
+func (c *ConfigStruct) readBeforeByte(value string, idx int) byte {
 	if idx == 0 {
 		return 0
 	}
 	return value[idx-1]
+}
+
+func (c *ConfigStruct) GetRegistry(host string) *Registry {
+	if c == nil {
+		return &Registry{registry: host}
+	}
+
+	if reg, ok := c.Registry[host]; ok {
+		return reg
+	}
+
+	return &Registry{registry: host}
 }

@@ -1,0 +1,24 @@
+Source: contatto
+Section: net
+Priority: optional
+Maintainer: wweir <wweir@wweir.cc>
+Build-Depends: golang-go (>= 2:1.20~), debhelper-compat (= 13)
+Standards-Version: 4.6.0
+Homepage: https://github.com/wweir/contatto
+Vcs-Git: https://github.com/wweir/contatto.git
+Vcs-Browser: https://github.com/wweir/contatto
+
+Package: contatto
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}
+Description: Container registry transparent proxy
+ Contatto is a transparent proxy for container registries that provides
+ registry mirroring and access optimization for Docker, containerd and
+ other container runtimes.
+ .
+ Key features:
+  - Registry mirroring and caching
+  - Docker daemon configuration injection
+  - Containerd configuration support
+  - Transparent proxy functionality
+  - Multi-architecture support

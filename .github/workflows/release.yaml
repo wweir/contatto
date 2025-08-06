@@ -3,9 +3,10 @@ on:
   push:
     tags:
       - "v*.*.*"
+
 jobs:
-  build:
-    name: Build
+  test:
+    name: Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/setup-go@v5
@@ -17,34 +18,226 @@ jobs:
             **/go.mod
 
       - uses: actions/checkout@v4
-      - name: build matrix
-        run: |
-          make test
-          echo
+      
+      - name: Run tests
+        run: make test
 
-          mkdir -p etc/systemd/system
-          mv conf/contatto.toml etc/contatto.toml
-          mv .github/contatto.service etc/systemd/system/contatto.service
-          file_list=(bin/contatto etc/contatto.toml etc/systemd/system/contatto.service)
-          echo package files: ${file_list[*]}
+  build-packages:
+    name: Build Packages
+    needs: test
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include:
+          # Debian packages
+          - package_type: "deb"
+            arch: "amd64"
+            goarch: "amd64"
+            target: "deb-simple"
+          - package_type: "deb"
+            arch: "arm64"
+            goarch: "arm64" 
+            target: "deb-simple"
+          - package_type: "deb"
+            arch: "armhf"
+            goarch: "arm"
+            goarm: "7"
+            target: "deb-simple"
+          
+          # Arch Linux packages
+          - package_type: "arch"
+            arch: "x86_64"
+            goarch: "amd64"
+            target: "arch-fallback"
+          - package_type: "arch"
+            arch: "aarch64"
+            goarch: "arm64"
+            target: "arch-fallback"
+          - package_type: "arch"
+            arch: "armv7h"
+            goarch: "arm"
+            goarm: "7"
+            target: "arch-fallback"
+            
+          # CentOS/RHEL RPM packages
+          - package_type: "rpm"
+            arch: "x86_64"
+            goarch: "amd64"
+            target: "rpm-fallback"
+          - package_type: "rpm"
+            arch: "aarch64"
+            goarch: "arm64"
+            target: "rpm-fallback"
+          - package_type: "rpm"
+            arch: "armv7hl"
+            goarch: "arm"
+            goarm: "7"
+            target: "rpm-fallback"
+            
+          # Generic tar.gz packages
+          - package_type: "tar"
+            arch: "linux-amd64"
+            goarch: "amd64"
+            target: "pkg-fallback"
+          - package_type: "tar"
+            arch: "linux-arm64"
+            goarch: "arm64"
+            target: "pkg-fallback"
+          - package_type: "tar"
+            arch: "linux-arm"
+            goarch: "arm"
+            goarm: "7"
+            target: "pkg-fallback"
+          - package_type: "tar"
+            arch: "linux-mips"
+            goarch: "mips"
+            target: "pkg-fallback"
+          - package_type: "tar"
+            arch: "linux-mipsle"
+            goarch: "mipsle"
+            target: "pkg-fallback"
 
-          make build GO='GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go'
-          tar czf contatto-linux-amd64.tar.gz ${file_list[*]}
-          make clean
-          make build GO='GOOS=linux GOARCH=arm CGO_ENABLED=0 go'
-          tar czf contatto-linux-arm.tar.gz ${file_list[*]}
-          make clean
-          make build GO='GOOS=linux GOARCH=arm64 CGO_ENABLED=0 go'
-          tar czf contatto-linux-arm64.tar.gz ${file_list[*]}
-          make clean
-          make build GO='GOOS=linux GOARCH=mips CGO_ENABLED=0 go'
-          tar czf contatto-linux-mips.tar.gz ${file_list[*]}
-          make clean
-          make build GO='GOOS=linux GOARCH=mipsle CGO_ENABLED=0 go'
-          tar czf contatto-linux-mipsle.tar.gz ${file_list[*]}
-          make clean
-
-      - uses: ncipollo/release-action@v1
+    steps:
+      - uses: actions/setup-go@v5
         with:
-          artifacts: "*.tar.gz"
+          go-version: ^1.23
+          check-latest: true
+          cache-dependency-path: |
+            **/go.sum
+            **/go.mod
+
+      - uses: actions/checkout@v4
+
+      - name: Install packaging tools
+        run: |
+          # Install tools for various package formats
+          sudo apt-get update
+          sudo apt-get install -y \
+            dpkg-dev \
+            rpm \
+            cpio \
+            fakeroot \
+            build-essential
+
+      - name: Build package for ${{ matrix.package_type }} (${{ matrix.arch }})
+        env:
+          GOARCH: ${{ matrix.goarch }}
+          GOARM: ${{ matrix.goarm }}
+          ARCHITECTURE: ${{ matrix.arch }}
+        run: |
+          echo "Building ${{ matrix.package_type }} package for ${{ matrix.arch }}"
+          
+          # Set Go environment variables
+          export GOOS=linux
+          export GOARCH=${{ matrix.goarch }}
+          export CGO_ENABLED=0
+          
+          # Set GOARM if specified
+          if [ "${{ matrix.goarm }}" != "" ]; then
+            export GOARM=${{ matrix.goarm }}
+          fi
+          
+          # Build the package
+          case "${{ matrix.package_type }}" in
+            "deb")
+              # For Debian packages, build using ARCHITECTURE variable
+              ARCHITECTURE=${{ matrix.arch }} make ${{ matrix.target }}
+              ;;
+            "arch"|"rpm")
+              # For Arch/RPM packages, pass architecture as parameter  
+              ./deploy/${{ matrix.package_type }}/create-${{ matrix.package_type }}-fallback.sh \
+                $(git describe --tags --always || echo 'dev') ${{ matrix.arch }}
+              ;;
+            "tar")
+              # For tar packages, use generic fallback
+              make ${{ matrix.target }}
+              # Rename the generic package to include architecture
+              if [ -f contatto_*.tar.gz ]; then
+                mv contatto_*.tar.gz contatto-${{ matrix.arch }}.tar.gz
+              fi
+              ;;
+          esac
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: contatto-${{ matrix.package_type }}-${{ matrix.arch }}
+          path: |
+            *.deb
+            *.pkg.tar.*
+            *.rpm
+            *.tar.gz
+          retention-days: 1
+
+  release:
+    name: Create Release
+    needs: build-packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: |
+          echo "=== Artifacts to be released ==="
+          find artifacts -type f \( -name "*.deb" -o -name "*.pkg.tar.*" -o -name "*.rpm" -o -name "*.tar.gz" \) | sort
+
+      - name: Create Release
+        uses: ncipollo/release-action@v1
+        with:
+          artifacts: "artifacts/*"
           token: ${{ secrets.GITHUB_TOKEN }}
+          generateReleaseNotes: true
+          body: |
+            ## Package Downloads
+            
+            ### Debian/Ubuntu (.deb)
+            - `contatto_*_amd64.deb` - Intel/AMD 64-bit
+            - `contatto_*_arm64.deb` - ARM 64-bit (Apple M1/M2, ARM64 servers)
+            - `contatto_*_armhf.deb` - ARM 32-bit (Raspberry Pi)
+            
+            ### Arch Linux (.pkg.tar.xz)
+            - `contatto-*-x86_64.pkg.tar.xz` - Intel/AMD 64-bit
+            - `contatto-*-aarch64.pkg.tar.xz` - ARM 64-bit
+            - `contatto-*-armv7h.pkg.tar.xz` - ARM 32-bit
+            
+            ### CentOS/RHEL/Fedora (.rpm)
+            - `contatto-*-x86_64.rpm` - Intel/AMD 64-bit
+            - `contatto-*-aarch64.rpm` - ARM 64-bit
+            - `contatto-*-armv7hl.rpm` - ARM 32-bit
+            
+            ### Generic Linux (.tar.gz)
+            - `contatto-linux-amd64.tar.gz` - Intel/AMD 64-bit
+            - `contatto-linux-arm64.tar.gz` - ARM 64-bit
+            - `contatto-linux-arm.tar.gz` - ARM 32-bit
+            - `contatto-linux-mips.tar.gz` - MIPS
+            - `contatto-linux-mipsle.tar.gz` - MIPS Little Endian
+            
+            ## Installation
+            
+            **Debian/Ubuntu:**
+            ```bash
+            sudo dpkg -i contatto_*_amd64.deb
+            sudo apt-get install -f  # Fix dependencies if needed
+            ```
+            
+            **Arch Linux:**
+            ```bash
+            sudo pacman -U contatto-*-x86_64.pkg.tar.xz
+            ```
+            
+            **CentOS/RHEL/Fedora:**
+            ```bash
+            sudo rpm -ivh contatto-*-x86_64.rpm
+            # or
+            sudo dnf install contatto-*-x86_64.rpm
+            ```
+            
+            **Generic Linux:**
+            ```bash
+            tar -xzf contatto-linux-amd64.tar.gz
+            sudo ./install.sh  # or manually copy files
+            ```

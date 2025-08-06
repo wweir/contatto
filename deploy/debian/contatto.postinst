@@ -1,0 +1,37 @@
+#!/bin/sh
+set -e
+
+case "$1" in
+    configure)
+        # Create contatto user if it doesn't exist
+        if ! getent passwd contatto >/dev/null; then
+            adduser --system --group --home /var/lib/contatto \
+                    --no-create-home --disabled-password --disabled-login \
+                    --gecos "Contatto proxy daemon" contatto
+        fi
+        
+        # Set ownership and permissions
+        chown -R contatto:contatto /var/lib/contatto /var/log/contatto
+        chmod 755 /var/lib/contatto /var/log/contatto
+        
+        # Enable and start systemd service
+        if [ -d /run/systemd/system ]; then
+            systemctl daemon-reload
+            if ! systemctl is-enabled contatto@contatto >/dev/null 2>&1; then
+                systemctl enable contatto@contatto
+            fi
+        fi
+        ;;
+        
+    abort-upgrade|abort-remove|abort-deconfigure)
+        ;;
+        
+    *)
+        echo "postinst called with unknown argument \`$1'" >&2
+        exit 1
+        ;;
+esac
+
+#DEBHELPER#
+
+exit 0
