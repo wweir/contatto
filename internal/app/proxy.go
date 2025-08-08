@@ -5,9 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httputil"
-	"os/exec"
 	"sync"
-	"time"
 
 	"github.com/containerd/containerd/v2/core/remotes/docker"
 	"github.com/sower-proxy/deferlog/v2"
@@ -16,9 +14,10 @@ import (
 )
 
 type ProxyCmd struct {
-	firstRequest   sync.Map
-	mirror         *proxy.Mirror
-	versionChecker *proxy.VersionChecker
+	firstRequest    sync.Map
+	mirror          *proxy.Mirror
+	versionChecker  *proxy.VersionChecker
+	commandExecutor *proxy.CommandExecutor
 }
 
 func (c *ProxyCmd) Run(cfg *config.ConfigStruct) error {
@@ -27,8 +26,15 @@ func (c *ProxyCmd) Run(cfg *config.ConfigStruct) error {
 	// Initialize mirror
 	c.mirror = proxy.NewMirror()
 
-	// Initialize version checker
-	c.versionChecker = proxy.NewVersionChecker(c.mirror, cfg)
+	// Initialize unified command executor
+	queueSize := 100
+	if cfg.VersionCheck != nil && cfg.VersionCheck.MaxQueueSize > 0 {
+		queueSize = cfg.VersionCheck.MaxQueueSize
+	}
+	c.commandExecutor = proxy.NewCommandExecutor(cfg, queueSize)
+
+	// Initialize version checker with command executor
+	c.versionChecker = proxy.NewVersionChecker(c.mirror, cfg, c.commandExecutor)
 
 	// Prewarm cache with common registries
 	c.mirror.PrewarmCache(cfg)
@@ -198,14 +204,18 @@ func (c *ProxyCmd) optimizedModifyResponse(cfg *config.ConfigStruct, authorizer 
 			}
 
 			if cmdline != "" {
-				slog.Info("mirror image not exist, run on missing command", "cmd", cmdline)
-				startTime := time.Now()
-				cmd := exec.Command("sh", "-c", cmdline)
-				out, err := cmd.CombinedOutput()
-				if err != nil {
-					return fmt.Errorf("failed to run on missing command, output: %s, err: %w", out, err)
+				slog.Info("mirror image not exist, queueing on missing command", "cmd", cmdline)
+
+				// Use unified command executor
+				cmdReq := proxy.CommandRequest{
+					Command:     cmdline,
+					RawImage:    raw,
+					MirrorImage: mirror,
+					Reason:      "404_not_found",
+					Source:      "404_handler",
 				}
-				slog.Info("on missing command finished", "took", time.Since(startTime))
+
+				c.commandExecutor.ExecuteCommand(cmdReq)
 
 				if err := RetryToRewriteResp(w, "on_missing", c.mirror.GetHTTPClient().Do); err != nil {
 					return fmt.Errorf("failed to rewrite response: %w", err)

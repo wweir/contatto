@@ -25,15 +25,13 @@ type ConfigStruct struct {
 	BaseRule         MirrorRule
 	Registry         map[string]*Registry
 	Rule             map[string]*MirrorRule
-	MirrorMapping    map[string]string
 	VersionCheck     *VersionCheckConfig `json:"version_check,omitempty"`
 }
 
 // VersionCheckConfig configures version consistency checking
 type VersionCheckConfig struct {
-	Enabled       bool   `json:"enabled"`        // Enable version checking
-	CheckInterval string `json:"check_interval"` // Interval between checks (e.g., "5m")
-	MaxQueueSize  int    `json:"max_queue_size"` // Maximum update queue size
+	Enabled      bool `json:"enabled"`        // Enable version checking
+	MaxQueueSize int  `json:"max_queue_size"` // Maximum update queue size
 }
 
 func ReadConfig(file string) (_ *ConfigStruct, err error) {

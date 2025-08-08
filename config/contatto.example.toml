@@ -1,24 +1,20 @@
 # Contatto Configuration with Version Checking
-addr = ":8080"
+addr = ":9527"
 docker_config_file = "/root/.docker/config.json"
 
 # Version checking configuration (optional)
 [version_check]
-enabled = true          # Enable version consistency checking for latest tags
-check_interval = "5m"   # Check interval (e.g., "5m", "1h", "30s")
-max_queue_size = 100    # Maximum update queue size
+enabled = true       # Enable version consistency checking for latest tags
+max_queue_size = 100 # Maximum update queue size
 
 # Base rule for mirror path template
 [base_rule]
-mirror_registry = "mirror.example.com"
-path_tpl = "{{.Project}}/{{.Repo}}:{{.Tag}}"
-
-# Registry configurations
-[registry.docker.io]
-alias = "docker-hub"
-insecure = false
-user = ""
-password = ""
+mirror_registry = "mirror"
+on_missing_tpl = """
+echo "Updating image: {{.raw}} -> {{.mirror}}"
+# Add your sync command here, e.g.:
+# skopeo copy docker://{{.raw}} docker://{{.mirror}}
+"""
 
 [registry."mirror.example.com"]
 alias = "mirror"
@@ -26,17 +22,24 @@ insecure = false
 user = ""
 password = ""
 
-# Mirror mapping
-[mirror_mapping]
-"docker.io" = "mirror.example.com"
-
-# Rules for specific registries
-[rule."docker.io"]
-mirror_registry = "mirror.example.com"
+# Registry configurations
+[registry.docker.io]
 path_tpl = "docker-hub/{{.Project}}/{{.Repo}}:{{.Tag}}"
-# Command to execute when image is missing or outdated
-on_missing_tpl = """
-echo "Updating image: {{.raw}} -> {{.mirror}}"
-# Add your sync command here, e.g.:
-# skopeo copy docker://{{.raw}} docker://{{.mirror}}
-"""
+
+[registry."gcr.io"]
+path_tpl = "gcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
+
+[registry."k8s.gcr.io"]
+path_tpl = "k8s-gcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
+
+[rule."registry.k8s.io"]
+path_tpl = "k8s-gcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
+
+[registry."quay.io"]
+path_tpl = "quay/{{.Project}}/{{.Repo}}:{{.Tag}}"
+
+[registry."ghcr.io"]
+path_tpl = "ghcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
+
+[rule."nvcr.io"]
+path_tpl = "nvcr/{{.Project}}/{{.Repo}}:{{.Tag}}"

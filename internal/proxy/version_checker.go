@@ -8,11 +8,132 @@ import (
 	"net/http"
 	"os/exec"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/wweir/contatto/config"
 )
+
+// CommandRequest represents a unified command execution request
+type CommandRequest struct {
+	Command     string
+	RawImage    *config.ImagePattern
+	MirrorImage *config.ImagePattern
+	Reason      string
+	Source      string // "404_handler" or "version_checker"
+	Done        chan struct{}
+}
+
+// CommandExecutor handles unified command execution via channels
+type CommandExecutor struct {
+	commandQueue chan CommandRequest
+	config       *config.ConfigStruct
+	enabled      bool
+}
+
+// NewCommandExecutor creates a new command executor
+func NewCommandExecutor(config *config.ConfigStruct, queueSize int) *CommandExecutor {
+	ce := &CommandExecutor{
+		commandQueue: make(chan CommandRequest, queueSize),
+		config:       config,
+		enabled:      true,
+	}
+
+	// two image copy threads
+	go ce.processCommandQueue()
+	go ce.processCommandQueue()
+
+	return ce
+}
+
+// ExecuteCommand queues a command for execution
+func (ce *CommandExecutor) ExecuteCommand(req CommandRequest) {
+	if !ce.enabled {
+		if req.Done != nil {
+			close(req.Done)
+		}
+		return
+	}
+
+	// Initialize Done channel if not provided
+	if req.Done == nil {
+		req.Done = make(chan struct{})
+	}
+
+	select {
+	case ce.commandQueue <- req:
+		slog.Info("queued command execution",
+			"source", req.Source,
+			"image", req.RawImage.String(),
+			"reason", req.Reason)
+	default:
+		slog.Warn("command queue full, dropping request",
+			"source", req.Source,
+			"image", req.RawImage.String())
+		if req.Done != nil {
+			close(req.Done)
+		}
+	}
+}
+
+// processCommandQueue handles queued command requests
+func (ce *CommandExecutor) processCommandQueue() {
+	for cmdReq := range ce.commandQueue {
+		err := ce.executeCommandInternal(cmdReq)
+		if err != nil {
+			slog.Error("failed to execute command",
+				"error", err,
+				"source", cmdReq.Source,
+				"image", cmdReq.RawImage.String())
+		}
+
+		// Close the Done channel to signal completion
+		if cmdReq.Done != nil {
+			close(cmdReq.Done)
+		}
+	}
+}
+
+// executeCommandInternal performs the actual command execution
+func (ce *CommandExecutor) executeCommandInternal(cmdReq CommandRequest) error {
+	slog.Info("executing command",
+		"source", cmdReq.Source,
+		"raw", cmdReq.RawImage.String(),
+		"mirror", cmdReq.MirrorImage.String(),
+		"reason", cmdReq.Reason,
+		"cmd", cmdReq.Command)
+
+	startTime := time.Now()
+
+	// Use a timeout for the command execution
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+
+	cmd := exec.CommandContext(ctx, "sh", "-c", cmdReq.Command)
+	out, err := cmd.CombinedOutput()
+
+	if err != nil {
+		slog.Error("command execution failed",
+			"error", err,
+			"output", string(out),
+			"source", cmdReq.Source,
+			"image", cmdReq.RawImage.String(),
+			"duration", time.Since(startTime))
+		return fmt.Errorf("command failed: %w", err)
+	} else {
+		slog.Info("command execution completed successfully",
+			"source", cmdReq.Source,
+			"image", cmdReq.RawImage.String(),
+			"duration", time.Since(startTime))
+	}
+
+	return nil
+}
+
+// SetEnabled enables or disables command execution
+func (ce *CommandExecutor) SetEnabled(enabled bool) {
+	ce.enabled = enabled
+	slog.Info("command execution", "enabled", enabled)
+}
 
 // ManifestInfo holds Docker manifest information for version comparison
 type ManifestInfo struct {
@@ -20,7 +141,6 @@ type ManifestInfo struct {
 	SchemaVersion int       `json:"schemaVersion"`
 	Digest        string    `json:"digest"`
 	Config        ConfigRef `json:"config"`
-	LastChecked   time.Time `json:"-"`
 }
 
 type ConfigRef struct {
@@ -30,137 +150,66 @@ type ConfigRef struct {
 
 // VersionChecker handles version consistency checks for latest tags
 type VersionChecker struct {
-	mirror        *Mirror
-	manifestCache sync.Map // map[string]*ManifestInfo
-	updateQueue   chan UpdateRequest
-	config        *config.ConfigStruct
-	checkInterval time.Duration
-	enabled       bool
-}
-
-type UpdateRequest struct {
-	RawImage    *config.ImagePattern
-	MirrorImage *config.ImagePattern
-	Reason      string
+	mirror          *Mirror
+	config          *config.ConfigStruct
+	commandExecutor *CommandExecutor
+	enabled         bool
 }
 
 // NewVersionChecker creates a new version checker
-func NewVersionChecker(mirror *Mirror, config *config.ConfigStruct) *VersionChecker {
+func NewVersionChecker(mirror *Mirror, config *config.ConfigStruct, commandExecutor *CommandExecutor) *VersionChecker {
 	// Default configuration
 	enabled := true
-	checkInterval := 5 * time.Minute
-	queueSize := 100
 
 	// Apply user configuration if provided
 	if config.VersionCheck != nil {
 		enabled = config.VersionCheck.Enabled
-		if config.VersionCheck.CheckInterval != "" {
-			if duration, err := time.ParseDuration(config.VersionCheck.CheckInterval); err == nil {
-				checkInterval = duration
-			} else {
-				slog.Warn("invalid check_interval, using default", "interval", config.VersionCheck.CheckInterval, "default", checkInterval)
-			}
-		}
-		if config.VersionCheck.MaxQueueSize > 0 {
-			queueSize = config.VersionCheck.MaxQueueSize
-		}
 	}
 
 	vc := &VersionChecker{
-		mirror:        mirror,
-		config:        config,
-		updateQueue:   make(chan UpdateRequest, queueSize),
-		checkInterval: checkInterval,
-		enabled:       enabled,
+		mirror:          mirror,
+		config:          config,
+		commandExecutor: commandExecutor,
+		enabled:         enabled,
 	}
 
-	slog.Info("version checker initialized",
-		"enabled", enabled,
-		"check_interval", checkInterval,
-		"queue_size", queueSize)
-
-	// Start background workers if enabled
-	if enabled {
-		go vc.processUpdateQueue()
-	}
+	slog.Info("version checker initialized", "enabled", enabled)
 
 	return vc
 }
 
-// CheckVersionConsistency checks if raw and mirror versions are consistent for latest tags
+// CheckVersionConsistency checks if raw and mirror version are consistent for latest tags
 func (vc *VersionChecker) CheckVersionConsistency(ctx context.Context, rawImage, mirrorImage *config.ImagePattern) {
-	if !vc.enabled {
+	if !vc.enabled || strings.ToLower(rawImage.Tag) != "latest" {
 		return
 	}
 
-	// Only check for latest tags
-	if !vc.shouldCheckVersion(rawImage) {
-		return
-	}
-
-	// Perform async version check to not block main request
-	go func() {
-		if err := vc.performVersionCheck(ctx, rawImage, mirrorImage); err != nil {
-			slog.Error("version check failed", "error", err, "image", rawImage.String())
-		}
-	}()
-}
-
-// shouldCheckVersion determines if we should check version for this image
-func (vc *VersionChecker) shouldCheckVersion(image *config.ImagePattern) bool {
-	// Check for latest tag (case insensitive)
-	if strings.ToLower(image.Tag) != "latest" {
-		return false
-	}
-
-	// Check if we've checked recently (rate limiting)
-	cacheKey := image.Registry + "/" + image.Project + "/" + image.Repo
-	if cached, ok := vc.manifestCache.Load(cacheKey); ok {
-		manifest := cached.(*ManifestInfo)
-		if time.Since(manifest.LastChecked) < vc.checkInterval {
-			return false // Skip if checked recently
-		}
-	}
-
-	return true
-}
-
-// performVersionCheck compares manifests between raw and mirror registries
-func (vc *VersionChecker) performVersionCheck(ctx context.Context, rawImage, mirrorImage *config.ImagePattern) error {
 	slog.Debug("performing version check", "raw", rawImage.String(), "mirror", mirrorImage.String())
 
 	// Get manifests from both registries
 	rawManifest, err := vc.getManifest(ctx, rawImage)
 	if err != nil {
-		return fmt.Errorf("failed to get raw manifest: %w", err)
+		slog.Error("failed to get raw manifest", "error", err, "image", rawImage.String())
+		return
 	}
 
 	mirrorManifest, err := vc.getManifest(ctx, mirrorImage)
 	if err != nil {
 		slog.Warn("failed to get mirror manifest, assuming outdated", "error", err, "mirror", mirrorImage.String())
-		// If mirror manifest is unavailable, trigger update
 		vc.triggerUpdate(rawImage, mirrorImage, "mirror_manifest_unavailable")
-		return nil
+		return
 	}
 
-	// Compare manifests
-	if !vc.manifestsMatch(rawManifest, mirrorManifest) {
+	// Compare manifests by config digest
+	if rawManifest.Config.Digest != mirrorManifest.Config.Digest {
 		slog.Info("version mismatch detected",
 			"raw_digest", rawManifest.Config.Digest,
 			"mirror_digest", mirrorManifest.Config.Digest,
 			"image", rawImage.String())
-
 		vc.triggerUpdate(rawImage, mirrorImage, "version_mismatch")
 	} else {
 		slog.Debug("versions are consistent", "image", rawImage.String())
 	}
-
-	// Update cache
-	cacheKey := rawImage.Registry + "/" + rawImage.Project + "/" + rawImage.Repo
-	rawManifest.LastChecked = time.Now()
-	vc.manifestCache.Store(cacheKey, rawManifest)
-
-	return nil
 }
 
 // getManifest retrieves manifest information from a registry
@@ -204,121 +253,51 @@ func (vc *VersionChecker) getManifest(ctx context.Context, image *config.ImagePa
 	return &manifest, nil
 }
 
-// manifestsMatch compares two manifests to determine if they represent the same image version
-func (vc *VersionChecker) manifestsMatch(raw, mirror *ManifestInfo) bool {
-	// Primary comparison: config digest (most reliable)
-	if raw.Config.Digest != "" && mirror.Config.Digest != "" {
-		return raw.Config.Digest == mirror.Config.Digest
-	}
-
-	// Fallback: manifest digest
-	if raw.Digest != "" && mirror.Digest != "" {
-		return raw.Digest == mirror.Digest
-	}
-
-	// If we can't compare reliably, assume they don't match to be safe
-	return false
-}
-
-// triggerUpdate queues an update request for the image
+// triggerUpdate queues an update request for the image using the unified command executor
 func (vc *VersionChecker) triggerUpdate(rawImage, mirrorImage *config.ImagePattern, reason string) {
-	updateReq := UpdateRequest{
-		RawImage:    rawImage,
-		MirrorImage: mirrorImage,
-		Reason:      reason,
-	}
-
-	select {
-	case vc.updateQueue <- updateReq:
-		slog.Info("queued image update", "image", rawImage.String(), "reason", reason)
-	default:
-		slog.Warn("update queue full, dropping request", "image", rawImage.String())
-	}
-}
-
-// processUpdateQueue handles queued update requests
-func (vc *VersionChecker) processUpdateQueue() {
-	for updateReq := range vc.updateQueue {
-		if err := vc.executeUpdate(updateReq); err != nil {
-			slog.Error("failed to execute update", "error", err, "image", updateReq.RawImage.String())
-		}
-	}
-}
-
-// executeUpdate performs the actual image update
-func (vc *VersionChecker) executeUpdate(updateReq UpdateRequest) error {
-	slog.Info("executing image update",
-		"raw", updateReq.RawImage.String(),
-		"mirror", updateReq.MirrorImage.String(),
-		"reason", updateReq.Reason)
-
 	// Find the rule for this registry
-	rule, ok := vc.config.Rule[updateReq.RawImage.Registry]
+	rule, ok := vc.config.Rule[rawImage.Registry]
 	if !ok {
-		return fmt.Errorf("no rule found for registry: %s", updateReq.RawImage.Registry)
+		slog.Error("no rule found for registry", "registry", rawImage.Registry)
+		return
 	}
 
-	// Execute the on-missing command to trigger update
 	if rule.OnMissingTpl == "" {
-		slog.Warn("no update command configured", "registry", updateReq.RawImage.Registry)
-		return nil
+		slog.Warn("no update command configured", "registry", rawImage.Registry)
+		return
 	}
 
 	cmdline, err := rule.RenderOnMissingCmd(map[string]any{
-		"Raw":    updateReq.RawImage,
-		"Mirror": updateReq.MirrorImage,
-		"raw":    updateReq.RawImage.String(),
-		"mirror": updateReq.MirrorImage.String(),
-		"reason": updateReq.Reason,
+		"Raw":    rawImage,
+		"Mirror": mirrorImage,
+		"raw":    rawImage.String(),
+		"mirror": mirrorImage.String(),
+		"reason": reason,
 	})
 	if err != nil {
-		return fmt.Errorf("failed to render update command: %w", err)
+		slog.Error("failed to render update command", "error", err, "registry", rawImage.Registry)
+		return
 	}
 
 	if cmdline == "" {
-		return nil
+		return
 	}
 
-	// Execute update command asynchronously
-	go func() {
-		startTime := time.Now()
-		slog.Info("running image update command", "cmd", cmdline, "image", updateReq.RawImage.String())
+	// Use unified command executor
+	cmdReq := CommandRequest{
+		Command:     cmdline,
+		RawImage:    rawImage,
+		MirrorImage: mirrorImage,
+		Reason:      reason,
+		Source:      "version_checker",
+		Done:        make(chan struct{}),
+	}
 
-		// Use a timeout for the update command
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
-		defer cancel()
-
-		cmd := exec.CommandContext(ctx, "sh", "-c", cmdline)
-		out, err := cmd.CombinedOutput()
-
-		if err != nil {
-			slog.Error("image update command failed",
-				"error", err,
-				"output", string(out),
-				"image", updateReq.RawImage.String(),
-				"duration", time.Since(startTime))
-		} else {
-			slog.Info("image update completed successfully",
-				"image", updateReq.RawImage.String(),
-				"duration", time.Since(startTime))
-
-			// Clear cache entry to force recheck on next request
-			cacheKey := updateReq.RawImage.Registry + "/" + updateReq.RawImage.Project + "/" + updateReq.RawImage.Repo
-			vc.manifestCache.Delete(cacheKey)
-		}
-	}()
-
-	return nil
+	vc.commandExecutor.ExecuteCommand(cmdReq)
 }
 
 // SetEnabled enables or disables version checking
 func (vc *VersionChecker) SetEnabled(enabled bool) {
 	vc.enabled = enabled
 	slog.Info("version checking", "enabled", enabled)
-}
-
-// SetCheckInterval sets the minimum interval between version checks for the same image
-func (vc *VersionChecker) SetCheckInterval(interval time.Duration) {
-	vc.checkInterval = interval
-	slog.Info("version check interval updated", "interval", interval)
 }

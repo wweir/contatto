@@ -33,3 +33,6 @@ go.work.sum
 /bin
 /config.toml
 /contatto.toml
+config/contatto.toml
+config/contatto.yaml
+config/contatto.json

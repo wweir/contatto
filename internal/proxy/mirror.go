@@ -122,11 +122,8 @@ func (m *Mirror) GetCachedConfig(host string, config *config.ConfigStruct) *Cach
 	// Get rule configuration
 	if rule, ok := config.Rule[host]; ok {
 		newConfig.Rule = rule
-	}
-
-	// Get mirror mapping
-	if mirrorReg, ok := config.MirrorMapping[host]; ok {
-		newConfig.MirrorReg = mirrorReg
+		// Use the rule's MirrorRegistry as the mirror registry
+		newConfig.MirrorReg = rule.MirrorRegistry
 	}
 
 	// Cache the new configuration
