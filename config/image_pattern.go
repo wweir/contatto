@@ -16,7 +16,6 @@ var (
 type ImagePattern struct {
 	Scheme   string
 	Registry string
-	Alias    string
 	Project  string
 	Repo     string
 	Tag      string
@@ -57,7 +56,19 @@ func (p *ImagePattern) ParseImage(image string) error {
 		return ErrInvalidImageFormat
 	}
 
+	// Default scheme is https
+	p.Scheme = "https"
+
 	return nil
+}
+
+// SetInsecure sets the scheme to http if insecure is true
+func (p *ImagePattern) SetInsecure(insecure bool) {
+	if insecure {
+		p.Scheme = "http"
+	} else {
+		p.Scheme = "https"
+	}
 }
 
 // ParseParams extracts route parameters from httprouter.Params

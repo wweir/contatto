@@ -1,172 +1,112 @@
 package config
 
 import (
-	"encoding/json"
+	_ "embed"
 	"fmt"
-	"os"
-	"path/filepath"
-	"reflect"
-	"regexp"
-	"strings"
+	"text/template"
 
-	"github.com/go-viper/mapstructure/v2"
-	"github.com/pelletier/go-toml/v2"
 	"github.com/sower-proxy/deferlog/v2"
-	"gopkg.in/yaml.v3"
 )
+
+//go:embed contatto.example.toml
+var ExampleConfig string
 
 var Version, Date string
 
 var Config *ConfigStruct
 
 type ConfigStruct struct {
-	Addr             string
-	DockerConfigFile string
-	BaseRule         MirrorRule
-	Registry         map[string]*Registry
-	Rule             map[string]*MirrorRule
-	VersionCheck     *VersionCheckConfig `json:"version_check,omitempty"`
+	Addr          string             `json:"addr" usage:"Server listening address"`
+	CopyQueueSize int                `json:"copy_queue_size" usage:"Image copy queue size"`
+	Mirror        MirrorConfig       `json:"mirror" usage:"Mirror registry configuration"`
+	Source        map[string]*Source `json:"source" usage:"Source registry configurations"`
 }
 
-// VersionCheckConfig configures version consistency checking
-type VersionCheckConfig struct {
-	Enabled      bool `json:"enabled"`        // Enable version checking
-	MaxQueueSize int  `json:"max_queue_size"` // Maximum update queue size
+type MirrorConfig struct {
+	Registry       string `json:"registry" usage:"Mirror registry address"`
+	Insecure       bool   `json:"insecure" usage:"Use HTTP instead of HTTPS for mirror registry"`
+	User           string `json:"user" usage:"Mirror registry username"`
+	Password       string `json:"password" usage:"Mirror registry password"`
+	DockerConfig   string `json:"docker_config" usage:"Path to Docker config.json for mirror registry auth"`
+	DefaultPathTpl string `json:"default_path_tpl" usage:"Default path template for mirroring"`
+
+	defaultPathTpl *template.Template
 }
 
-func ReadConfig(file string) (_ *ConfigStruct, err error) {
-	defer func() { deferlog.DebugError(err, "ReadConfig", "file", file) }()
+type Source struct {
+	PathTpl  string `json:"path_tpl" usage:"Path template for this source registry"`
+	User     string `json:"user" usage:"Source registry username"`
+	Password string `json:"password" usage:"Source registry password"`
+	Insecure bool   `json:"insecure" usage:"Use HTTP instead of HTTPS for source registry"`
 
-	f, err := os.Open(file)
-	if err != nil {
-		return nil, err
-	}
-	defer f.Close()
-
-	decodeM := map[string]any{}
-	switch filepath.Ext(file) {
-	case ".json":
-		err = json.NewDecoder(f).Decode(&decodeM)
-	case ".toml":
-		err = toml.NewDecoder(f).Decode(&decodeM)
-	case ".yaml", ".yml":
-		err = yaml.NewDecoder(f).Decode(&decodeM)
-	}
-	if err != nil {
-		return nil, fmt.Errorf("decode config: %w", err)
-	}
-
-	c := ConfigStruct{}
-	decoder, _ := mapstructure.NewDecoder(&mapstructure.DecoderConfig{
-		DecodeHook: func(f reflect.Type, t reflect.Type, data interface{}) (interface{}, error) {
-			if f.Kind() != reflect.String || t.Kind() != reflect.String {
-				return data, nil
-			}
-			return c.renderEnv(data.(string)), nil
-		},
-		TagName: "json",
-		Result:  &c,
-		MatchName: func(mapKey, fieldName string) bool {
-			return strings.EqualFold(strings.ReplaceAll(mapKey, "_", ""), fieldName)
-		},
-	})
-	if err := decoder.Decode(decodeM); err != nil {
-		return nil, fmt.Errorf("mapstructure config: %w", err)
-	}
-
-	return c.Validate()
+	pathTpl *template.Template
 }
 
-func (c *ConfigStruct) Validate() (_ *ConfigStruct, err error) {
-	defer func() { deferlog.DebugError(err, "Validate", "config", c) }()
+func (c *ConfigStruct) Validate() error {
+	defer func() { deferlog.DebugError(nil, "Validate", "config", c) }()
 
+	// 提供默认值
 	if c.Addr == "" {
-		return nil, fmt.Errorf("addr is required")
+		c.Addr = ":9527"
+	}
+	if c.CopyQueueSize <= 0 {
+		c.CopyQueueSize = 100
+	}
+	if c.Mirror.Registry == "" {
+		c.Mirror.Registry = "mirror.example.com"
+	}
+	if c.Source == nil {
+		c.Source = make(map[string]*Source)
+	}
+	if c.Mirror.DefaultPathTpl == "" {
+		c.Mirror.DefaultPathTpl = "{{.Project}}/{{.Repo}}:{{.Tag}}"
 	}
 
-	if c.BaseRule.MirrorRegistry == "" {
-		return nil, fmt.Errorf("base_rule.mirror_registry is required")
-	}
-
-	for host, registry := range c.Registry {
-		if registry.registry == "" {
-			registry.registry = host
+	// parse mirror default path template
+	if c.Mirror.DefaultPathTpl != "" {
+		tpl, err := template.New("default").Parse(c.Mirror.DefaultPathTpl)
+		if err != nil {
+			return fmt.Errorf("parse mirror.default_path_tpl: %w", err)
 		}
+		c.Mirror.defaultPathTpl = tpl
+	}
 
-		if registry.Alias == "" {
-			registry.Alias = host
+	// parse each source path template, fallback to default
+	for name, src := range c.Source {
+		if src.PathTpl != "" {
+			tpl, err := template.New(name).Parse(src.PathTpl)
+			if err != nil {
+				return fmt.Errorf("parse source.%s.path_tpl: %w", name, err)
+			}
+			src.pathTpl = tpl
 		} else {
-			c.Registry[registry.Alias] = registry
-		}
-	}
-
-	if err := c.BaseRule.ParseTemplate(); err != nil {
-		return nil, fmt.Errorf("parse base rule: %w", err)
-	}
-	for registry, rule := range c.Rule {
-		if _, ok := c.Registry[registry]; !ok {
-			c.Registry[registry] = &Registry{registry: registry}
+			src.pathTpl = c.Mirror.defaultPathTpl
 		}
 
-		if rule.MirrorRegistry == "" {
-			rule.MirrorRegistry = c.BaseRule.MirrorRegistry
+		// 允许没有 path_tpl 的 source（使用默认值）
+		if src.pathTpl == nil {
+			tpl, err := template.New("default").Parse(c.Mirror.DefaultPathTpl)
+			if err != nil {
+				return fmt.Errorf("parse default path tpl: %w", err)
+			}
+			c.Mirror.defaultPathTpl = tpl
+			src.pathTpl = c.Mirror.defaultPathTpl
 		}
 
-		if err := rule.ParseTemplate(); err != nil {
-			return nil, fmt.Errorf("parse rule: %w", err)
-		}
-		if rule.PathTpl == "" {
-			rule.pathTpl = c.BaseRule.pathTpl
-		}
-		if rule.pathTpl == nil {
-			return nil, fmt.Errorf(`rule."%s".path_tpl is required`, registry)
-		}
-		if rule.OnMissingTpl == "" {
-			rule.onMissingTpl = c.BaseRule.onMissingTpl
-		}
+		c.Source[name] = src
 	}
-	return c, nil
+
+	return nil
 }
 
-var envRe = regexp.MustCompile(`\$\{([a-zA-Z0-9_]+)\}`)
-
-func (c *ConfigStruct) renderEnv(value string) string {
-	idxPairs := envRe.FindAllStringIndex(value, -1)
-	if len(idxPairs) == 0 {
-		return value
-	}
-
-	newValue := ""
-	for _, idxPair := range idxPairs {
-		if c.readBeforeByte(value, idxPair[0]) == '$' {
-			newValue += value[:idxPair[0]] + value[idxPair[0]+1:idxPair[1]]
-			continue
-		}
-
-		envName := value[idxPair[0]+2 : idxPair[1]-1]
-		envValue := os.Getenv(envName)
-		newValue += value[:idxPair[0]] + envValue
-	}
-
-	lastIdx := idxPairs[len(idxPairs)-1][1]
-	return newValue + value[lastIdx:]
-}
-
-func (c *ConfigStruct) readBeforeByte(value string, idx int) byte {
-	if idx == 0 {
-		return 0
-	}
-	return value[idx-1]
-}
-
-func (c *ConfigStruct) GetRegistry(host string) *Registry {
+func (c *ConfigStruct) GetSource(host string) *Source {
 	if c == nil {
-		return &Registry{registry: host}
+		return nil
 	}
 
-	if reg, ok := c.Registry[host]; ok {
-		return reg
+	if src, ok := c.Source[host]; ok {
+		return src
 	}
 
-	return &Registry{registry: host}
+	return nil
 }

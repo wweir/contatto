@@ -1,45 +1,47 @@
-# Contatto Configuration with Version Checking
-addr = ":9527"
-docker_config_file = "/root/.docker/config.json"
+# Contatto Configuration
+# proxy listening address
+addr = "127.0.0.1:9527"
 
-# Version checking configuration (optional)
-[version_check]
-enabled = true       # Enable version consistency checking for latest tags
-max_queue_size = 100 # Maximum update queue size
+# copy queue size for async image sync
+copy_queue_size = 100
 
-# Base rule for mirror path template
-[base_rule]
-mirror_registry = "mirror"
-on_missing_tpl = """
-echo "Updating image: {{.raw}} -> {{.mirror}}"
-# Add your sync command here, e.g.:
-# skopeo copy docker://{{.raw}} docker://{{.mirror}}
-"""
-
-[registry."mirror.example.com"]
-alias = "mirror"
+# mirror registry: the destination where images are cached/stored
+[mirror]
+registry = "${MIRROR_REGISTRY}"
 insecure = false
-user = ""
-password = ""
+# auth: inline credentials or docker config file, choose one
+user = "${MIRROR_USER}"
+password = "${MIRROR_PASSWORD}"
+# docker_config = "/root/.docker/config.json"
 
-# Registry configurations
-[registry.docker.io]
+# default path template for all sources
+# available variables: {{.Project}}, {{.Repo}}, {{.Tag}}
+default_path_tpl = "{{.Project}}/{{.Repo}}:{{.Tag}}"
+
+# source registries: each entry defines how a source registry maps to mirror
+# key = source registry hostname
+# path_tpl overrides mirror.default_path_tpl for this source
+[source."docker.io"]
 path_tpl = "docker-hub/{{.Project}}/{{.Repo}}:{{.Tag}}"
 
-[registry."gcr.io"]
+[source."gcr.io"]
 path_tpl = "gcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
 
-[registry."k8s.gcr.io"]
-path_tpl = "k8s-gcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
+[source."registry.k8s.io"]
+path_tpl = "k8s/{{.Project}}/{{.Repo}}:{{.Tag}}"
 
-[rule."registry.k8s.io"]
-path_tpl = "k8s-gcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
-
-[registry."quay.io"]
+[source."quay.io"]
 path_tpl = "quay/{{.Project}}/{{.Repo}}:{{.Tag}}"
 
-[registry."ghcr.io"]
+[source."ghcr.io"]
 path_tpl = "ghcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
 
-[rule."nvcr.io"]
+[source."nvcr.io"]
 path_tpl = "nvcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
+
+# source with custom auth (e.g. private registry)
+[source."registry.example.com"]
+path_tpl = "private/{{.Project}}/{{.Repo}}:{{.Tag}}"
+user = "pull-user"
+password = "pull-pass"
+insecure = true
