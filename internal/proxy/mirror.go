@@ -24,9 +24,7 @@ type Mirror struct {
 
 // CachedConfig holds cached configuration data for a registry
 type CachedConfig struct {
-	Registry  *config.Registry
-	Rule      *config.MirrorRule
-	MirrorReg string
+	Source    *config.Source
 	CachedAt  time.Time
 	TTL       time.Duration
 }
@@ -41,7 +39,7 @@ type RouteInfo struct {
 }
 
 // NewMirror creates an optimized route parser
-func NewMirror() *Mirror {
+func NewMirror(cfg *config.ConfigStruct) *Mirror {
 	return &Mirror{
 		// Pre-compile regex patterns for better performance
 		manifestPattern: regexp.MustCompile(`^/v2/([^/]+)/([^/]+)/manifests/([^/]+)$`),
@@ -114,16 +112,9 @@ func (m *Mirror) GetCachedConfig(host string, config *config.ConfigStruct) *Cach
 		TTL:      5 * time.Minute, // Cache for 5 minutes
 	}
 
-	// Get registry configuration
-	if reg, ok := config.Registry[host]; ok {
-		newConfig.Registry = reg
-	}
-
-	// Get rule configuration
-	if rule, ok := config.Rule[host]; ok {
-		newConfig.Rule = rule
-		// Use the rule's MirrorRegistry as the mirror registry
-		newConfig.MirrorReg = rule.MirrorRegistry
+	// Get source configuration
+	if src, ok := config.Source[host]; ok {
+		newConfig.Source = src
 	}
 
 	// Cache the new configuration
@@ -155,8 +146,8 @@ func (m *Mirror) Rewrite(r *http.Request, cfg *config.ConfigStruct) (*config.Ima
 	// Get cached configuration
 	cachedConfig := m.GetCachedConfig(host, cfg)
 
-	// Check if we have a rule for this host
-	if cachedConfig.Rule == nil {
+	// Check if we have a source config for this host
+	if cachedConfig.Source == nil {
 		// No mapping rule, direct forward
 		return nil, nil, nil
 	}
@@ -168,11 +159,7 @@ func (m *Mirror) Rewrite(r *http.Request, cfg *config.ConfigStruct) (*config.Ima
 		Repo:     routeInfo.Repo,
 		Tag:      routeInfo.Tag,
 	}
-
-	// Add alias if available
-	if cachedConfig.Registry != nil {
-		srcImage.Alias = cachedConfig.Registry.Alias
-	}
+	srcImage.SetInsecure(cachedConfig.Source.Insecure)
 
 	// Validate source image
 	if err := srcImage.Validate(); err != nil {
@@ -180,29 +167,17 @@ func (m *Mirror) Rewrite(r *http.Request, cfg *config.ConfigStruct) (*config.Ima
 	}
 
 	// Render mirror path
-	mirrorPath, err := cachedConfig.Rule.RenderMirrorPath(srcImage)
+	mirrorPath, err := cachedConfig.Source.RenderMirrorPath(srcImage.Project, srcImage.Repo, srcImage.Tag)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	// Get destination registry
-	dstReg := cfg.GetRegistry(cachedConfig.MirrorReg)
-	if dstReg == nil {
-		return nil, nil, config.ErrInvalidImageFormat
-	}
-
 	// Create destination image pattern
-	dstImage := &config.ImagePattern{Registry: dstReg.Host(), Alias: dstReg.Alias}
-	if err := dstImage.ParseImage(dstReg.Host() + "/" + mirrorPath); err != nil {
+	dstImage := &config.ImagePattern{Registry: cfg.Mirror.Registry}
+	if err := dstImage.ParseImage(cfg.Mirror.Registry + "/" + mirrorPath); err != nil {
 		return nil, nil, err
 	}
-
-	// Set scheme
-	if dstReg.Insecure {
-		dstImage.Scheme = "http"
-	} else {
-		dstImage.Scheme = "https"
-	}
+	dstImage.SetInsecure(cfg.Mirror.Insecure)
 
 	return srcImage, dstImage, nil
 }
