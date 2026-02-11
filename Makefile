@@ -1,5 +1,5 @@
 MAKEFLAGS += --jobs all
-GO:=CGO_ENABLED=0 GODEBUG=httpmuxgo121=1 go
+GO:=CGO_ENABLED=1 GODEBUG=httpmuxgo121=1 go
 
 # Package information
 PACKAGE_NAME := contatto
@@ -19,14 +19,7 @@ build:
 		-o bin/contatto ./cmd/contatto
 
 run: build
-	./bin/contatto proxy --debug -c config/contatto.toml
-
-install: build
-	sudo install -m 0755 ./bin/contatto /usr/bin/contatto
-	sudo install -d /etc /var/lib/contatto /var/log/contatto
-	sudo install -m 0644 config/contatto.example.toml /etc/contatto.toml
-	sudo install -m 0644 deploy/systemd/contatto@.service /lib/systemd/system/contatto@.service
-	sudo systemctl daemon-reload
+	sudo ./bin/contatto
 
 clean:
 	rm -f ./bin/contatto
@@ -43,7 +36,7 @@ deb: clean-deb
 	@echo "Building Debian package..."
 	cd deploy && dpkg-buildpackage -us -uc -b
 
-deb-source: clean-deb  
+deb-source: clean-deb
 	@echo "Building Debian source package..."
 	cd deploy && dpkg-buildpackage -us -uc -S
 
@@ -106,7 +99,7 @@ pkg-fallback: build
 deb-multi: clean
 	@echo "Building multi-architecture packages..."
 	$(MAKE) deb-arch GOARCH=amd64 ARCH=amd64
-	$(MAKE) deb-arch GOARCH=arm64 ARCH=arm64  
+	$(MAKE) deb-arch GOARCH=arm64 ARCH=arm64
 	$(MAKE) deb-arch GOARCH=arm GOARM=7 ARCH=armhf
 
 deb-arch:
@@ -115,18 +108,18 @@ deb-arch:
 		-X github.com/wweir/contatto/config.Version=$(VERSION) \
 		-X github.com/wweir/contatto/config.Date=$(shell date +%Y-%m-%d)" \
 		-o bin/contatto-$(ARCH) ./cmd/contatto
-	
+
 	mkdir -p debian-pkg-$(ARCH)/DEBIAN
 	mkdir -p debian-pkg-$(ARCH)/usr/bin
 	mkdir -p debian-pkg-$(ARCH)/etc
 	mkdir -p debian-pkg-$(ARCH)/lib/systemd/system
 	mkdir -p debian-pkg-$(ARCH)/var/lib/contatto
 	mkdir -p debian-pkg-$(ARCH)/var/log/contatto
-	
+
 	cp bin/contatto-$(ARCH) debian-pkg-$(ARCH)/usr/bin/contatto
 	cp config/contatto.example.toml debian-pkg-$(ARCH)/etc/contatto.toml
 	cp deploy/systemd/contatto@.service debian-pkg-$(ARCH)/lib/systemd/system/
-	
+
 	@echo "Package: $(PACKAGE_NAME)" > debian-pkg-$(ARCH)/DEBIAN/control
 	@echo "Version: $(VERSION)" >> debian-pkg-$(ARCH)/DEBIAN/control
 	@echo "Section: net" >> debian-pkg-$(ARCH)/DEBIAN/control
@@ -136,7 +129,7 @@ deb-arch:
 	@echo "Description: Container registry transparent proxy" >> debian-pkg-$(ARCH)/DEBIAN/control
 	@echo " Contatto is a transparent proxy for container registries." >> debian-pkg-$(ARCH)/DEBIAN/control
 	@echo "Homepage: https://github.com/wweir/contatto" >> debian-pkg-$(ARCH)/DEBIAN/control
-	
+
 	dpkg-deb --build debian-pkg-$(ARCH) $(PACKAGE_NAME)_$(VERSION)_$(ARCH).deb
 	rm -rf debian-pkg-$(ARCH) bin/contatto-$(ARCH)
 
@@ -159,7 +152,7 @@ arch-fallback: build
 arch-multi: clean
 	@echo "Building multi-architecture Arch packages..."
 	$(MAKE) arch-arch GOARCH=amd64 ARCH=x86_64
-	$(MAKE) arch-arch GOARCH=arm64 ARCH=aarch64  
+	$(MAKE) arch-arch GOARCH=arm64 ARCH=aarch64
 	$(MAKE) arch-arch GOARCH=arm GOARM=7 ARCH=armv7h
 
 arch-arch:
@@ -168,7 +161,7 @@ arch-arch:
 		-X github.com/wweir/contatto/config.Version=$(VERSION) \
 		-X github.com/wweir/contatto/config.Date=$(shell date +%Y-%m-%d)" \
 		-o bin/contatto-$(ARCH) ./cmd/contatto
-	
+
 	./deploy/archlinux/create-arch-fallback.sh $(VERSION) $(ARCH)
 	rm -f bin/contatto-$(ARCH)
 
@@ -191,7 +184,7 @@ rpm-fallback: build
 rpm-multi: clean
 	@echo "Building multi-architecture RPM packages..."
 	$(MAKE) rpm-arch GOARCH=amd64 ARCH=x86_64
-	$(MAKE) rpm-arch GOARCH=arm64 ARCH=aarch64  
+	$(MAKE) rpm-arch GOARCH=arm64 ARCH=aarch64
 	$(MAKE) rpm-arch GOARCH=arm GOARM=7 ARCH=armv7hl
 
 rpm-arch:
@@ -200,7 +193,7 @@ rpm-arch:
 		-X github.com/wweir/contatto/config.Version=$(VERSION) \
 		-X github.com/wweir/contatto/config.Date=$(shell date +%Y-%m-%d)" \
 		-o bin/contatto-$(ARCH) ./cmd/contatto
-	
+
 	./deploy/rpm/create-rpm-fallback.sh $(VERSION) $(ARCH)
 	rm -f bin/contatto-$(ARCH)
 
