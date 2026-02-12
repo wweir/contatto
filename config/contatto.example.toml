@@ -3,45 +3,37 @@
 addr = "127.0.0.1:9527"
 
 # copy queue size for async image sync
-copy_queue_size = 100
+copy_queue_size = 10
+
+# default path template for all sources
+# available variables: {{.Project}}, {{.Repo}}, {{.Tag}}
+default_path_tpl = "{{.Registry}}_{{.Project}}/{{.Repo}}:{{.Tag}}"
+
+# default proxy for all source registries (http://host:port or socks5h://host:port)
+# can be overridden per source
+default_source_proxy = "${HTTP_PROXY}"
 
 # mirror registry: the destination where images are cached/stored
 [mirror]
 registry = "${MIRROR_REGISTRY}"
 insecure = false
-# auth: inline credentials or docker config file, choose one
+# auth: inline credentials
 user = "${MIRROR_USER}"
 password = "${MIRROR_PASSWORD}"
-# docker_config = "/root/.docker/config.json"
-
-# default path template for all sources
-# available variables: {{.Project}}, {{.Repo}}, {{.Tag}}
-default_path_tpl = "{{.Project}}/{{.Repo}}:{{.Tag}}"
 
 # source registries: each entry defines how a source registry maps to mirror
 # key = source registry hostname
-# path_tpl overrides mirror.default_path_tpl for this source
+# path_tpl overrides default_path_tpl for this source
 [source."docker.io"]
-path_tpl = "docker-hub/{{.Project}}/{{.Repo}}:{{.Tag}}"
-
 [source."gcr.io"]
-path_tpl = "gcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
-
 [source."registry.k8s.io"]
-path_tpl = "k8s/{{.Project}}/{{.Repo}}:{{.Tag}}"
-
 [source."quay.io"]
-path_tpl = "quay/{{.Project}}/{{.Repo}}:{{.Tag}}"
-
 [source."ghcr.io"]
-path_tpl = "ghcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
-
 [source."nvcr.io"]
-path_tpl = "nvcr/{{.Project}}/{{.Repo}}:{{.Tag}}"
 
-# source with custom auth (e.g. private registry)
-[source."registry.example.com"]
-path_tpl = "private/{{.Project}}/{{.Repo}}:{{.Tag}}"
-user = "pull-user"
-password = "pull-pass"
-insecure = true
+### source with custom auth (e.g. private registry)
+# [source."registry.example.com"]
+# path_tpl = "private/{{.Project}}/{{.Repo}}:{{.Tag}}"
+# user = "pull-user"
+# password = "pull-pass"
+# insecure = true

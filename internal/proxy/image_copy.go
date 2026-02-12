@@ -2,10 +2,12 @@ package proxy
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log/slog"
 
-	"github.com/containers/image/v5/copy"
-	"github.com/containers/image/v5/transports/alltransports"
+	"github.com/google/go-containerregistry/pkg/name"
+	"github.com/google/go-containerregistry/pkg/v1/remote"
 	"github.com/wweir/contatto/config"
 )
 
@@ -49,18 +51,46 @@ func (c *ImageCopier) worker() {
 }
 
 func (c *ImageCopier) CopyImage(ctx context.Context, src, dst *config.ImagePattern) error {
-	srcRef, err := alltransports.ParseImageName("docker://" + src.String())
-	if err != nil {
-		return err
+	// Build pull options for source registry
+	pullOpts := []remote.Option{remote.WithContext(ctx)}
+	if srcCfg := c.config.GetSource(src.Registry); srcCfg != nil {
+		transport, err := srcCfg.ProxyTransport()
+		if err != nil {
+			slog.Error("failed to create proxy transport", "proxy", srcCfg.Proxy, "error", err)
+		} else if transport != nil {
+			pullOpts = append(pullOpts, remote.WithTransport(transport))
+		}
 	}
 
-	dstRef, err := alltransports.ParseImageName("docker://" + dst.String())
-	if err != nil {
-		return err
+	// Build push options for mirror registry
+	pushOpts := []remote.Option{
+		remote.WithContext(ctx),
+		remote.WithAuthFromKeychain(c.config.MirrorKeychain()),
 	}
 
-	_, err = copy.Image(ctx, nil, dstRef, srcRef, &copy.Options{})
-	return err
+	srcRef, err := name.ParseReference(src.String())
+	if err != nil {
+		return fmt.Errorf("parsing src reference %q: %w", src.String(), err)
+	}
+	dstRef, err := name.ParseReference(dst.String())
+	if err != nil {
+		return fmt.Errorf("parsing dst reference %q: %w", dst.String(), err)
+	}
+
+	puller, err := remote.NewPuller(pullOpts...)
+	if err != nil {
+		return fmt.Errorf("create puller: %w", err)
+	}
+	desc, err := puller.Get(ctx, srcRef)
+	if err != nil {
+		return fmt.Errorf("fetching %q: %w", src.String(), err)
+	}
+
+	pusher, err := remote.NewPusher(pushOpts...)
+	if err != nil {
+		return fmt.Errorf("create pusher: %w", err)
+	}
+	return pusher.Push(ctx, dstRef, desc)
 }
 
 func (c *ImageCopier) QueueCopy(src, dst *config.ImagePattern) (chan struct{}, error) {
@@ -73,4 +103,4 @@ func (c *ImageCopier) QueueCopy(src, dst *config.ImagePattern) (chan struct{}, e
 	}
 }
 
-var ErrCopyQueueFull = config.ErrInvalidImageFormat // TODO: create specific error
+var ErrCopyQueueFull = errors.New("copy queue is full")

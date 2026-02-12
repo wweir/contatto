@@ -36,6 +36,12 @@ func InstallService(confirm ConfirmFunc) error {
 			if err != nil {
 				return fmt.Errorf("read binary %s: %w", execPath, err)
 			}
+			// Stop service before overwriting to avoid "text file busy"
+			if isUpdate {
+				_ = systemctl("stop", "contatto")
+			}
+			// Remove old binary first then write new one
+			os.Remove(targetPath)
 			if err := os.WriteFile(targetPath, data, 0o755); err != nil {
 				return fmt.Errorf("write binary to %s: %w", targetPath, err)
 			}

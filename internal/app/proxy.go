@@ -2,9 +2,9 @@ package app
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
-	"sync"
 
 	"github.com/julienschmidt/httprouter"
 	"github.com/wweir/contatto/config"
@@ -12,7 +12,6 @@ import (
 )
 
 type ProxyCmd struct {
-	firstRequest   sync.Map
 	mirror         *proxy.Mirror
 	versionChecker *proxy.VersionChecker
 	imageCopier    *proxy.ImageCopier
@@ -21,15 +20,10 @@ type ProxyCmd struct {
 func (c *ProxyCmd) Run(cfg *config.ConfigStruct) error {
 	slog.Info("Starting proxy", "version", config.Version, "date", config.Date, "config", cfg)
 
-	// Initialize components
 	c.mirror = proxy.NewMirror(cfg)
 	c.imageCopier = proxy.NewImageCopier(cfg)
-	c.versionChecker = proxy.NewVersionChecker(c.mirror, cfg, c.imageCopier)
+	c.versionChecker = proxy.NewVersionChecker(cfg, c.imageCopier)
 
-	// Prewarm cache with common registries
-	c.mirror.PrewarmCache(cfg)
-
-	// Create httprouter
 	router := httprouter.New()
 	c.setupRoutes(cfg, router)
 
@@ -42,6 +36,20 @@ func (c *ProxyCmd) setupRoutes(cfg *config.ConfigStruct, router *httprouter.Rout
 	router.HEAD("/v2/:project/:repo/manifests/:reference", c.handleProxy(cfg))
 	router.GET("/v2/:project/:repo/blobs/:digest", c.handleProxy(cfg))
 	router.HEAD("/v2/:project/:repo/blobs/:digest", c.handleProxy(cfg))
+
+	router.NotFound = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		host := r.URL.Query().Get("ns")
+		if host == "" {
+			host = "docker.io"
+		}
+		slog.Warn("unknown route, forwarding directly", "method", r.Method, "path", r.URL.Path, "host", host)
+
+		scheme := "https"
+		if src := cfg.GetSource(host); src != nil && src.Insecure {
+			scheme = "http"
+		}
+		forwardRequest(w, r, &config.ImagePattern{Scheme: scheme, Registry: host}, nil)
+	})
 }
 
 func (c *ProxyCmd) handlePing(w http.ResponseWriter, r *http.Request, _ httprouter.Params) {
@@ -51,105 +59,99 @@ func (c *ProxyCmd) handlePing(w http.ResponseWriter, r *http.Request, _ httprout
 
 func (c *ProxyCmd) handleProxy(cfg *config.ConfigStruct) httprouter.Handle {
 	return func(w http.ResponseWriter, r *http.Request, params httprouter.Params) {
-		// Get host from query parameter
-		query := r.URL.Query()
-		host := query.Get("ns")
+		host := r.URL.Query().Get("ns")
 		if host == "" {
 			host = "docker.io"
 		}
 
-		slog := slog.With("raw_reg", host)
+		project := params.ByName("project")
+		repo := params.ByName("repo")
+		tag := params.ByName("reference")
+		if tag == "" {
+			tag = params.ByName("digest")
+		}
 
-		// Use optimized routing
-		srcImage, dstImage, err := c.mirror.Rewrite(r, cfg)
+		slog := slog.With("host", host)
+
+		srcImage, dstImage, err := c.mirror.Rewrite(r, project, repo, tag)
 		if err != nil {
 			slog.Error("failed to rewrite request", "err", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		// Handle direct forwarding (no mirror rule)
+		// No mapping rule, forward directly to source
 		if srcImage == nil || dstImage == nil {
-			cachedConfig := c.mirror.GetCachedConfig(host, cfg)
-			if cachedConfig.Source != nil {
-				// Direct forward to source registry
-				forwardRequest(w, r, srcImage)
+			src := cfg.GetSource(host)
+			scheme := "https"
+			if src != nil && src.Insecure {
+				scheme = "http"
 			}
 			slog.Warn("no mapping rule, forwarding directly")
+			forwardRequest(w, r, &config.ImagePattern{
+				Scheme: scheme, Registry: host,
+				Project: project, Repo: repo, Tag: tag,
+			}, sourceHTTPClient(src))
 			return
 		}
 
-		// Check if this is a manifest request (image pull)
-		routeInfo := c.mirror.ParseRoute(r.URL.Path)
-		if routeInfo.Valid && routeInfo.Endpoint == "manifests" && srcImage.Tag != "" {
-			// For manifest requests, we need to ensure the mirror has the latest version
-			slog.Debug("manifest request detected, checking version consistency",
-				"raw", srcImage.String(), "mirror", dstImage.String())
-
-			// This will trigger copy if version mismatch or mirror image is missing
+		// For manifest requests, check version consistency
+		if tag != "" && params.ByName("reference") != "" {
+			slog.Debug("checking version consistency", "src", srcImage.String(), "mirror", dstImage.String())
 			c.versionChecker.CheckVersionConsistency(r.Context(), srcImage, dstImage)
 		}
 
-		// Forward request to mirror registry
-		forwardRequest(w, r, dstImage)
+		forwardRequest(w, r, dstImage, nil)
 	}
 }
 
-// forwardRequest forwards the request to the target image's registry
-func forwardRequest(w http.ResponseWriter, r *http.Request, image *config.ImagePattern) error {
-	// Build the target URL
-	targetURL := fmt.Sprintf("%s://%s%s", image.Scheme, image.Registry, r.URL.Path)
-
-	// Create a new request to the target
-	req, err := http.NewRequest(r.Method, targetURL, r.Body)
+func sourceHTTPClient(src *config.Source) *http.Client {
+	if src == nil {
+		return nil
+	}
+	transport, err := src.ProxyTransport()
 	if err != nil {
-		return err
+		slog.Error("failed to create proxy transport", "proxy", src.Proxy, "error", err)
+		return nil
+	}
+	if transport == nil {
+		return nil
+	}
+	return &http.Client{Transport: transport}
+}
+
+func forwardRequest(w http.ResponseWriter, r *http.Request, image *config.ImagePattern, client *http.Client) {
+	if client == nil {
+		client = http.DefaultClient
 	}
 
-	// Copy headers
-	for name, values := range r.Header {
-		for _, value := range values {
-			req.Header.Add(name, value)
-		}
+	registry := image.Registry
+	if registry == "docker.io" {
+		registry = "registry-1.docker.io"
 	}
 
-	// Set host header
-	req.Host = image.Registry
+	targetURL := fmt.Sprintf("%s://%s%s", image.Scheme, registry, r.URL.Path)
+	req, err := http.NewRequestWithContext(r.Context(), r.Method, targetURL, r.Body)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
 
-	// Send request
-	client := &http.Client{}
+	req.Header = r.Header.Clone()
+	req.Host = registry
+
 	resp, err := client.Do(req)
 	if err != nil {
-		w.WriteHeader(http.StatusBadGateway)
-		fmt.Fprintf(w, "Failed to forward request: %v", err)
-		return err
+		http.Error(w, fmt.Sprintf("Failed to forward request: %v", err), http.StatusBadGateway)
+		return
 	}
 	defer resp.Body.Close()
 
-	// Copy response headers
 	for name, values := range resp.Header {
 		for _, value := range values {
 			w.Header().Add(name, value)
 		}
 	}
-
-	// Write response status and body
 	w.WriteHeader(resp.StatusCode)
-	_, err = w.Write(readResponseBody(resp))
-	return err
-}
-
-func readResponseBody(resp *http.Response) []byte {
-	body := make([]byte, 4096)
-	var buf []byte
-	for {
-		n, err := resp.Body.Read(body)
-		if n > 0 {
-			buf = append(buf, body[:n]...)
-		}
-		if err != nil {
-			break
-		}
-	}
-	return buf
+	io.Copy(w, resp.Body)
 }

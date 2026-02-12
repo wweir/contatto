@@ -9,8 +9,10 @@ import (
 	"github.com/lmittmann/tint"
 	"github.com/sower-proxy/deferlog/v2"
 	"github.com/sower-proxy/feconf"
+	_ "github.com/sower-proxy/feconf/decoder/json"
 	_ "github.com/sower-proxy/feconf/decoder/toml"
 	_ "github.com/sower-proxy/feconf/reader/file"
+	_ "github.com/sower-proxy/feconf/reader/http"
 	"github.com/wweir/contatto/config"
 	"github.com/wweir/contatto/internal/app"
 	"github.com/wweir/contatto/internal/install"
@@ -23,7 +25,8 @@ func main() {
 	installService := flag.Bool("s", false, "Install Contatto as systemd service without entering interactive mode")
 
 	// 加载配置
-	cfg, err := feconf.New[config.ConfigStruct]("c", "contatto.toml", "/etc/contatto.toml").Parse()
+	cfg, err := feconf.New[config.ConfigStruct]("c",
+		"contatto.toml", "config/contatto.toml", "/etc/contatto.toml").Parse()
 	if err != nil {
 		log.Fatalln("load config failed", err)
 	}
